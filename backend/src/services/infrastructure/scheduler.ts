@@ -6,6 +6,11 @@ import { FearGreedCalculator } from '@/services/core/fearGreedCalculator'
 import { DatabaseService } from '@/services/core/databaseService'
 import { MarketDataRepository } from '@/repositories/market/MarketDataRepository'
 import { FearGreedIndexRepository } from '@/repositories/analytics/FearGreedIndexRepository'
+import { BatchQueueManager } from './BatchQueueManager'
+import { ErrorRecoverySystem } from './ErrorRecoverySystem'
+import { RateLimitingService } from './RateLimitingService'
+import { BatchMonitoringService } from './BatchMonitoringService'
+import { logger } from '@/utils/common/logger'
 // import { DartBatchService } from '@/services/dartBatchService' // Not implemented yet
 // import { fetchUpbitIndexData } from '@/collectors/upbitCollector' // Not implemented yet
 // import { fetchCnnFearGreedIndexData } from '@/collectors/cnnCollector' // Not implemented yet
@@ -15,40 +20,56 @@ import { FearGreedIndexRepository } from '@/repositories/analytics/FearGreedInde
 let isSchedulerRunning = false
 let scheduledJobs: cron.ScheduledTask[] = []
 
+// 8시간 배치 세션 상태 관리
+interface BatchSession {
+  id: string
+  type: string
+  startTime: Date
+  maxDuration: number
+  isActive: boolean
+  completedTasks: string[]
+  failedTasks: string[]
+}
+
+let currentBatchSession: BatchSession | null = null
+let batchHistory: BatchSession[] = []
+
 /**
- * 데이터 수집 스케줄러 시작
+ * 8시간 간격 데이터 수집 스케줄러 시작
  */
 export function startDataCollectionScheduler(): void {
   if (isSchedulerRunning) {
-    console.log('데이터 수집 스케줄러가 이미 실행 중입니다.')
+    logger.info('데이터 수집 스케줄러가 이미 실행 중입니다.')
     return
   }
 
-  console.log('데이터 수집 스케줄러를 시작합니다.')
+  logger.info('8시간 간격 배치 데이터 수집 스케줄러를 시작합니다.')
 
   try {
-    // 1. 평일 오전 6:00 - BOK 경제지표 데이터 수집
-    const bokJob = cron.schedule('0 6 * * 1-5', async () => {
-      console.log('[Scheduler] BOK 데이터 수집 작업 시작')
-      await collectBOKData()
+    // 배치 큐 관리자 초기화
+    BatchQueueManager.initialize()
+    
+    // 에러 복구 시스템 초기화
+    ErrorRecoverySystem.initialize()
+    // 1. 매일 오전 6:00 - 아침 배치 세션 (전일 데이터 수집)
+    const morningBatchJob = cron.schedule('0 6 * * *', async () => {
+      await executeBatchSession('morning', 'high')
     }, {
       scheduled: false,
       timezone: 'Asia/Seoul'
     })
 
-    // 2. 평일 오후 3:45 - KRX 장마감 후 시장 데이터 수집
-    const krxJob = cron.schedule('45 15 * * 1-5', async () => {
-      console.log('[Scheduler] KRX 데이터 수집 작업 시작')
-      await collectKRXData()
+    // 2. 평일 오후 2:00 - 오후 배치 세션 (장중 데이터 수집)
+    const afternoonBatchJob = cron.schedule('0 14 * * 1-5', async () => {
+      await executeBatchSession('afternoon', 'high')
     }, {
       scheduled: false,
       timezone: 'Asia/Seoul'
     })
 
-    // 3. 평일 오후 6:00 - Fear & Greed Index 계산 및 저장
-    const fearGreedJob = cron.schedule('0 18 * * 1-5', async () => {
-      console.log('[Scheduler] Fear & Greed Index 계산 작업 시작')
-      await calculateAndSaveFearGreedIndex()
+    // 3. 매일 오후 10:00 - 저녁 배치 세션 (일일 데이터 완성)
+    const eveningBatchJob = cron.schedule('0 22 * * *', async () => {
+      await executeBatchSession('evening', 'medium')
     }, {
       scheduled: false,
       timezone: 'Asia/Seoul'
@@ -122,21 +143,21 @@ export function startDataCollectionScheduler(): void {
     })
 
     // 스케줄러 작업 배열에 추가
-    scheduledJobs = [bokJob, krxJob, fearGreedJob, maintenanceJob, externalIndexJob, dartBatchJob, dartFinancialJob]
+    scheduledJobs = [morningBatchJob, afternoonBatchJob, eveningBatchJob, maintenanceJob, externalIndexJob, dartBatchJob, dartFinancialJob]
 
     // 모든 작업 시작
     scheduledJobs.forEach(job => job.start())
 
     isSchedulerRunning = true
-    console.log('데이터 수집 스케줄러가 성공적으로 시작되었습니다.')
-    console.log('스케줄:')
-    console.log('  - BOK 데이터: 평일 06:00')
-    console.log('  - KRX 데이터: 평일 15:45') 
-    console.log('  - Fear & Greed 계산: 평일 18:00')
-    console.log('  - DART 공시 배치: 평일 18:30')
-    console.log('  - 시스템 유지보수: 매일 00:00')
-    console.log('  - 외부 지수: 매일 00:10')
-    console.log('  - DART 재무 배치: 매주 일요일 02:00')
+    logger.info('8시간 간격 배치 데이터 수집 스케줄러가 성공적으로 시작되었습니다.')
+    logger.info('배치 스케줄:')
+    logger.info('  - 아침 배치: 매일 06:00 (전일 데이터 수집)')
+    logger.info('  - 오후 배치: 평일 14:00 (장중 데이터 수집)')
+    logger.info('  - 저녁 배치: 매일 22:00 (일일 데이터 완성)')
+    logger.info('  - DART 공시 배치: 평일 18:30')
+    logger.info('  - 시스템 유지보수: 매일 00:00')
+    logger.info('  - 외부 지수: 매일 00:10')
+    logger.info('  - DART 재무 배치: 매주 일요일 02:00')
 
   } catch (error) {
     console.error('스케줄러 시작 중 오류:', error)
@@ -268,12 +289,12 @@ async function collectKRXData(date?: string): Promise<void> {
 async function collectBOKData(date?: string): Promise<void> {
   const targetDate: string = date ?? getTodayDateString()
   try {
-    console.log(`[BOK] ${targetDate} 데이터 수집 시작`)
+    logger.info(`[BOK] ${targetDate} 데이터 수집 시작`)
 
     // API 키 검증
     const isApiValid = await BOKCollector.validateApiKey()
     if (!isApiValid) {
-      console.warn('[BOK] API 키가 유효하지 않습니다. 데이터 수집을 건너뜁니다.')
+      logger.warn('[BOK] API 키가 유효하지 않습니다. 데이터 수집을 건너뜁니다.')
       return
     }
 
@@ -294,19 +315,19 @@ async function collectBOKData(date?: string): Promise<void> {
       await MarketDataRepository.saveEconomicIndicatorData(bokData.economicIndicators)
     }
 
-    console.log(`[BOK] ${targetDate} 데이터 수집 완료`)
+    logger.info(`[BOK] ${targetDate} 데이터 수집 완료`)
 
     // 수집된 데이터 로깅
     if (bokData.interestRates) {
-      console.log(`  - 기준금리: ${bokData.interestRates.baseRate}%`)
-      console.log(`  - 국고채 10년: ${bokData.interestRates.treasuryBond10Y}%`)
+      logger.info(`  - 기준금리: ${bokData.interestRates.baseRate}%`)
+      logger.info(`  - 국고채 10년: ${bokData.interestRates.treasuryBond10Y}%`)
     }
     if (bokData.exchangeRates) {
-      console.log(`  - USD/KRW: ${bokData.exchangeRates.usdKrw}`)
+      logger.info(`  - USD/KRW: ${bokData.exchangeRates.usdKrw}`)
     }
 
   } catch (error) {
-    console.error('[BOK] 데이터 수집 실패:', error)
+    logger.error('[BOK] 데이터 수집 실패:', error)
     // 에러 알림
     // await sendErrorNotification('BOK 데이터 수집 실패', error)
     throw error

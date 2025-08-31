@@ -1,6 +1,10 @@
 import { DartApiClient } from '@/clients/dart/DartApiClient'
 import { DartCollectionService } from '@/services/collectors/DartCollectionService'
 import { DartDisclosureRepository } from '@/repositories/dart/DartDisclosureRepository'
+import { BatchQueueManager } from '@/services/infrastructure/BatchQueueManager'
+import { ErrorRecoverySystem } from '@/services/infrastructure/ErrorRecoverySystem'
+import { RateLimitingService } from '@/services/infrastructure/RateLimitingService'
+import { TransactionalDatabaseService } from '@/services/infrastructure/TransactionalDatabaseService'
 import { logger } from '@/utils/common/logger'
 import { 
   DartBatchResult, 
@@ -33,22 +37,27 @@ export class DartBatchService {
   }
 
   /**
-   * 배치 서비스 초기화
+   * 배치 서비스 초기화 (Enhanced with 8-hour batch processing)
    */
   static async initialize(): Promise<void> {
-    logger.info('[DART Batch] 서비스 초기화 시작')
+    logger.info('[DART Batch] Enhanced 배치 서비스 초기화 시작')
 
     try {
+      // 인프라 서비스들 초기화
+      BatchQueueManager.initialize()
+      ErrorRecoverySystem.initialize()
+      await TransactionalDatabaseService.initialize()
+      
       // 기존 실행 중인 작업 상태 복구
       await this.recoverPendingJobs()
 
-      // 스케줄러 시작
-      this.startScheduler()
+      // 강화된 스케줄러 시작 (8시간 간격)
+      this.startEnhancedScheduler()
 
       // 큐 프로세서 시작
       this.startQueueProcessor()
 
-      logger.info('[DART Batch] 서비스 초기화 완료')
+      logger.info('[DART Batch] Enhanced 서비스 초기화 완료')
 
     } catch (error) {
       logger.error('[DART Batch] 서비스 초기화 실패:', error)
@@ -57,33 +66,72 @@ export class DartBatchService {
   }
 
   /**
-   * 일별 공시 데이터 배치 수집 작업 생성
+   * 강화된 배치 수집 작업 생성 (8시간 간격 지원)
    */
-  static async scheduleDailyDisclosureCollection(
-    date: string, 
-    options?: DartFilterOptions
+  static async scheduleEnhancedBatchCollection(
+    date: string,
+    sessionType: 'morning' | 'afternoon' | 'evening',
+    options?: DartFilterOptions & {
+      maxPages?: number
+      pageSize?: number
+      priority?: 'high' | 'medium' | 'low'
+    }
   ): Promise<string> {
-    const jobId = `daily-${date}-${Date.now()}`
+    const jobId = `enhanced-${sessionType}-${date}-${Date.now()}`
 
     const queueItem: DartBatchQueueItem = {
       id: jobId,
       type: 'disclosure',
-      priority: 'high',
-      payload: { date, options },
+      priority: options?.priority || 'medium',
+      payload: { 
+        date, 
+        sessionType,
+        options: {
+          ...options,
+          maxPages: options?.maxPages || 50,
+          pageSize: options?.pageSize || 100
+        }
+      },
       status: 'pending',
       attempts: 0,
-      maxAttempts: 3,
+      maxAttempts: 5, // 더 많은 재시도 허용
       createdAt: new Date(),
       scheduledAt: new Date()
     }
 
+    // 강화된 큐 매니저를 통해 작업 추가
+    await BatchQueueManager.addJob('dart', {
+      id: jobId,
+      source: 'dart',
+      type: 'disclosure',
+      priority: queueItem.priority,
+      payload: queueItem.payload,
+      attempts: 0,
+      maxAttempts: queueItem.maxAttempts,
+      status: 'pending',
+      createdAt: new Date()
+    })
+
     this.batchQueue.push(queueItem)
-    logger.info(`[DART Batch] 일별 공시 수집 작업 생성: ${jobId}`)
+    logger.info(`[DART Batch] Enhanced ${sessionType} 배치 수집 작업 생성: ${jobId}`)
 
     // 데이터베이스에 작업 상태 저장
     await this.saveBatchStatus(jobId, 'pending')
 
     return jobId
+  }
+
+  /**
+   * 기존 호환성을 위한 래퍼 메서드
+   */
+  static async scheduleDailyDisclosureCollection(
+    date: string, 
+    options?: DartFilterOptions
+  ): Promise<string> {
+    return this.scheduleEnhancedBatchCollection(date, 'evening', {
+      ...options,
+      priority: 'high'
+    })
   }
 
   /**
@@ -202,36 +250,99 @@ export class DartBatchService {
   }
 
   /**
-   * 일별 공시 데이터 처리
+   * 강화된 일별 공시 데이터 처리 (에러 복구 및 트랜잭션 지원)
    */
   private static async processDailyDisclosures(
     date: string, 
-    options?: DartFilterOptions
+    options?: DartFilterOptions & { sessionType?: string }
   ): Promise<any> {
     const startTime = Date.now()
+    const sessionType = options?.sessionType || 'default'
     
-    // DART API 호출 - 새로운 서비스 사용
-    const disclosures = await DartCollectionService.collectDailyDisclosures(date, false)
+    logger.info(`[DART Batch] Enhanced processing started: ${date} (${sessionType})`)
     
-    // Fear & Greed 지수 관련 공시 필터링
-    const allDisclosures = [
-      ...disclosures.regularReports,
-      ...disclosures.majorEvents,
-      ...disclosures.stockEvents
-    ]
-    const sentimentRelevant = DartCollectionService.filterSentimentRelevantDisclosures(allDisclosures)
+    try {
+      // Rate limiting과 circuit breaker를 적용한 데이터 수집
+      const disclosures = await RateLimitingService.executeWithRateLimit(
+        'dart_collection',
+        async () => {
+          return await DartCollectionService.collectDailyDisclosures(date, false, {
+            maxPages: options?.maxPages || 50,
+            pageSize: options?.pageSize || 100
+          })
+        },
+        {
+          requestsPerSecond: 8,
+          burstAllowance: 15,
+          adaptiveScaling: true,
+          maxBackoffDelay: 60000
+        }
+      )
+      
+      // Fear & Greed 지수 관련 공시 필터링
+      const allDisclosures = [
+        ...disclosures.stockDisclosures // 업데이트된 구조에 맞춤
+      ]
+      const sentimentRelevant = DartCollectionService.filterSentimentRelevantDisclosures(allDisclosures)
 
-    // 데이터베이스에 저장
-    await this.saveDartDisclosures(sentimentRelevant, date)
+      // 트랜잭션을 통한 안전한 데이터베이스 저장
+      if (sentimentRelevant.length > 0) {
+        const persistResult = await TransactionalDatabaseService.persistWithOverlapDetection(
+          sentimentRelevant.map(d => ({
+            receiptNumber: d.receiptNumber,
+            corpCode: d.corpCode,
+            corpName: d.corpName,
+            reportName: d.reportName,
+            receiptDate: new Date(d.receiptDate),
+            flrName: d.flrName,
+            remarks: d.remarks,
+            stockCode: d.stockCode,
+            disclosureDate: new Date(d.disclosureDate),
+            reportCode: d.reportCode
+          })),
+          'dartDisclosure',
+          ['receiptNumber'], // 고유 키
+          1000 // 배치 크기
+        )
+        
+        logger.info(`[DART Batch] Database persistence completed:`, {
+          inserted: persistResult.inserted,
+          updated: persistResult.updated,
+          errors: persistResult.errors.length
+        })
+      }
 
-    // 통계 업데이트
-    this.updateStats(1, Date.now() - startTime, sentimentRelevant.length)
+      // 통계 업데이트
+      this.updateStats(1, Date.now() - startTime, sentimentRelevant.length)
 
-    return {
-      date,
-      totalDisclosures: disclosures.totalDisclosures,
-      sentimentRelevantCount: sentimentRelevant.length,
-      processingTime: Date.now() - startTime
+      const result = {
+        date,
+        sessionType,
+        totalDisclosures: disclosures.totalDisclosures,
+        sentimentRelevantCount: sentimentRelevant.length,
+        processingTime: Date.now() - startTime,
+        success: true
+      }
+      
+      logger.info(`[DART Batch] Enhanced processing completed:`, result)
+      return result
+      
+    } catch (error) {
+      logger.error(`[DART Batch] Enhanced processing failed: ${date} (${sessionType})`, error)
+      
+      // 에러 복구 시스템을 통한 복구 시도
+      const recovery = await ErrorRecoverySystem.handleFailure(
+        { id: `dart_${date}_${sessionType}`, type: 'data_collection' },
+        error as Error,
+        { attempts: 1, sessionId: sessionType }
+      )
+      
+      if (recovery.action === 'retry') {
+        logger.info(`[DART Batch] Scheduling retry with ${recovery.delay}ms delay`)
+        // 여기서는 에러를 다시 throw해서 상위 레벨에서 재시도 처리
+      }
+      
+      throw error
     }
   }
 
@@ -291,13 +402,49 @@ export class DartBatchService {
   }
 
   /**
-   * 스케줄러 시작 (매일 오후 6시 실행)
+   * 강화된 8시간 간격 스케줄러 시작
    */
-  private static startScheduler(): void {
-    // 매일 오후 6시에 전일 공시 데이터 수집
-    cron.schedule('0 18 * * 1-5', async () => {
-      const yesterday = DartCollectionService.getLastBusinessDay(1)
-      await this.scheduleDailyDisclosureCollection(yesterday)
+  private static startEnhancedScheduler(): void {
+    // 오전 6시 - 전일 공시 데이터 수집
+    cron.schedule('0 6 * * *', async () => {
+      try {
+        const yesterday = DartCollectionService.getLastBusinessDay(1)
+        await this.scheduleEnhancedBatchCollection(yesterday, 'morning', {
+          maxPages: 50,
+          pageSize: 100,
+          priority: 'high'
+        })
+      } catch (error) {
+        logger.error('[DART Batch] Morning batch scheduling failed:', error)
+      }
+    })
+
+    // 오후 2시 - 당일 장중 공시 수집
+    cron.schedule('0 14 * * 1-5', async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        await this.scheduleEnhancedBatchCollection(today!, 'afternoon', {
+          maxPages: 20,
+          pageSize: 50,
+          priority: 'high'
+        })
+      } catch (error) {
+        logger.error('[DART Batch] Afternoon batch scheduling failed:', error)
+      }
+    })
+
+    // 오후 10시 - 일일 종합 공시 수집
+    cron.schedule('0 22 * * *', async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        await this.scheduleEnhancedBatchCollection(today!, 'evening', {
+          maxPages: 100,
+          pageSize: 100,
+          priority: 'medium'
+        })
+      } catch (error) {
+        logger.error('[DART Batch] Evening batch scheduling failed:', error)
+      }
     })
 
     // 매주 월요일 오전 2시에 주간 통계 생성
@@ -305,7 +452,7 @@ export class DartBatchService {
       await this.generateWeeklyReport()
     })
 
-    logger.info('[DART Batch] 스케줄러 시작됨')
+    logger.info('[DART Batch] Enhanced 8시간 간격 스케줄러 시작됨')
   }
 
   /**
@@ -316,24 +463,44 @@ export class DartBatchService {
     date: string
   ): Promise<void> {
     try {
-      // DartDisclosureRepository 사용하여 배치 저장
-      const result = await DartDisclosureRepository.saveDisclosuresBatch(
+      if (disclosures.length === 0) {
+        logger.info(`[DART Batch] No disclosures to save for ${date}`)
+        return
+      }
+      
+      // Enhanced 트랜잭션 저장 사용
+      const persistResult = await TransactionalDatabaseService.persistWithOverlapDetection(
         disclosures.map(d => ({
           receiptNumber: d.receiptNumber,
           corpCode: d.corpCode,
           corpName: d.corpName,
           reportName: d.reportName,
-          receiptDate: d.receiptDate,
+          receiptDate: new Date(d.receiptDate),
           flrName: d.flrName,
           remarks: d.remarks,
           stockCode: d.stockCode,
-          disclosureDate: d.disclosureDate,
+          disclosureDate: new Date(d.disclosureDate),
           reportCode: d.reportCode
-        }))
+        })),
+        'dartDisclosure',
+        ['receiptNumber'],
+        1000 // 1000개씩 배치 처리
       )
-      logger.info(`[DART Batch] 공시 데이터 저장: ${result.success}건 성공, ${result.failed}건 실패 (${date})`)
+      
+      logger.info(`[DART Batch] Enhanced 공시 데이터 저장 완료: ${date}`, {
+        inserted: persistResult.inserted,
+        updated: persistResult.updated,
+        skipped: persistResult.skipped,
+        errors: persistResult.errors.length,
+        totalProcessed: persistResult.totalProcessed
+      })
+      
+      if (persistResult.errors.length > 0) {
+        logger.warn(`[DART Batch] 저장 중 일부 오류 발생:`, persistResult.errors)
+      }
+      
     } catch (error) {
-      logger.error('[DART Batch] 공시 데이터 저장 실패:', error)
+      logger.error('[DART Batch] Enhanced 공시 데이터 저장 실패:', error)
       throw error
     }
   }
@@ -415,16 +582,45 @@ export class DartBatchService {
   }
 
   /**
-   * 서비스 종료
+   * 서비스 종료 (Enhanced)
    */
   static async shutdown(): Promise<void> {
-    logger.info('[DART Batch] 서비스 종료 시작')
+    logger.info('[DART Batch] Enhanced 서비스 종료 시작')
     
     // 진행 중인 작업 완료까지 대기
     while (this.isProcessing) {
       await new Promise(resolve => setTimeout(resolve, 1000))
     }
+    
+    // 인프라 서비스들 종료
+    await TransactionalDatabaseService.shutdown()
 
-    logger.info('[DART Batch] 서비스 종료 완료')
+    logger.info('[DART Batch] Enhanced 서비스 종료 완료')
+  }
+  
+  /**
+   * 시스템 상태 조회 (Enhanced)
+   */
+  static getEnhancedStatus() {
+    const basicStatus = this.getStatus()
+    
+    return {
+      ...basicStatus,
+      infrastructure: {
+        batchQueue: BatchQueueManager.getQueueStatus('dart'),
+        errorRecovery: ErrorRecoverySystem.getSystemStatus(),
+        rateLimiting: RateLimitingService.getStats('dart'),
+        database: TransactionalDatabaseService.getConnectionStats()
+      },
+      performance: {
+        averageProcessingTime: this.stats.averageResponseTime,
+        successRate: this.stats.totalApiCalls > 0 ? 
+          (this.stats.successfulCalls / this.stats.totalApiCalls) * 100 : 0,
+        throughput: {
+          callsPerHour: this.stats.totalApiCalls,
+          dataPointsPerHour: this.stats.dataPoints
+        }
+      }
+    }
   }
 }
