@@ -31,6 +31,19 @@ class ApiClient {
   private async handleRequest<T>(requestFn: () => Promise<any>): Promise<T> {
     try {
       const response = await requestFn()
+      
+      // Handle non-standard response formats
+      if (response.data && typeof response.data === 'object') {
+        // If response has success field, return the data
+        if ('success' in response.data && response.data.success && 'data' in response.data) {
+          return response.data.data
+        }
+        // If response has data field directly, return it
+        if ('data' in response.data) {
+          return response.data
+        }
+      }
+      
       return response.data
     } catch (error: any) {
       console.error('API request failed:', error)
@@ -40,7 +53,7 @@ class ApiClient {
         const data = error.response.data
         
         throw new ApiClientError(
-          data?.message || `HTTP ${status} Error`,
+          data?.message || data?.error || `HTTP ${status} Error`,
           status,
           data
         )
@@ -117,7 +130,7 @@ class ApiClient {
     dryRun?: boolean
   }): Promise<DartBatchResult> {
     return this.handleRequest<ApiResponse<DartBatchResult>>(
-      () => api.post('/api/dart/collect', params)
+      () => api.post('/api/dart/batch/daily', { date: params.date, options: { maxPages: params.maxPages, pageSize: params.pageSize, reportCode: params.reportCode, dryRun: params.dryRun } })
     ).then(res => res.data)
   }
 

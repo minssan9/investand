@@ -131,7 +131,7 @@ export const fearGreedApi = {
   // 특정 날짜의 Fear & Greed Index 조회
   async getIndexByDate(date: string): Promise<HistoryData | null> {
     try {
-      const response = await api.get<{ success: boolean; data: HistoryData }>(`/fear-greed/date/${date}`)
+      const response = await api.get<{ success: boolean; data: HistoryData }>(`/api/fear-greed/date/${date}`)
       return response.data.data
     } catch (error) {
       return null
@@ -144,7 +144,7 @@ export const marketApi = {
   // KOSPI 데이터 가져오기
   async getKospiData() {
     try {
-      const response = await api.get<{ success: boolean; data: MarketData['kospi'] }>('/data/kospi')
+      const response = await api.get<{ success: boolean; data: MarketData['kospi'] }>('/api/data/kospi')
       return response.data.data
     } catch (error) {
       return {
@@ -160,7 +160,7 @@ export const marketApi = {
   // KOSDAQ 데이터 가져오기
   async getKosdaqData() {
     try {
-      const response = await api.get<{ success: boolean; data: MarketData['kosdaq'] }>('/data/kosdaq')
+      const response = await api.get<{ success: boolean; data: MarketData['kosdaq'] }>('/api/data/kosdaq')
       return response.data.data
     } catch (error) {
       return {
@@ -176,7 +176,7 @@ export const marketApi = {
   // 전체 시장 데이터 가져오기
   async getAllMarketData(): Promise<MarketData> {
     try {
-      const response = await api.get<{ success: boolean; data: MarketData }>('/data/market')
+      const response = await api.get<{ success: boolean; data: MarketData }>('/api/data/market')
       return response.data.data
     } catch (error) {
       return {

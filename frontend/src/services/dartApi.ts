@@ -102,7 +102,7 @@ export const dartApi = {
       if (params.limit) queryParams.append('limit', params.limit.toString())
 
       const response = await api.get<{ success: boolean; data: DartDisclosuresResponse }>(
-        `/dart/disclosures?${queryParams.toString()}`
+        `/api/dart/disclosures?${queryParams.toString()}`
       )
       return response.data.data
     } catch (error) {
@@ -115,7 +115,7 @@ export const dartApi = {
   async getCompanyInfo(corpCode: string): Promise<DartCompanyInfo> {
     try {
       const response = await api.get<{ success: boolean; data: DartCompanyInfo }>(
-        `/dart/companies?corpCode=${corpCode}`
+        `/api/dart/companies?corpCode=${corpCode}`
       )
       return response.data.data
     } catch (error) {
@@ -139,7 +139,7 @@ export const dartApi = {
       if (params.fsDiv) queryParams.append('fsDiv', params.fsDiv)
 
       const response = await api.get<{ success: boolean; data: DartFinancialInfo }>(
-        `/dart/financial?${queryParams.toString()}`
+        `/api/dart/financial?${queryParams.toString()}`
       )
       return response.data.data
     } catch (error) {
@@ -152,7 +152,7 @@ export const dartApi = {
   async getKospi200(): Promise<{ corpCodes: string[]; count: number; description: string }> {
     try {
       const response = await api.get<{ success: boolean; data: { corpCodes: string[]; count: number; description: string } }>(
-        '/dart/kospi200'
+        '/api/dart/kospi200'
       )
       return response.data.data
     } catch (error) {
@@ -165,7 +165,7 @@ export const dartApi = {
   async checkHealth(): Promise<DartHealthStatus> {
     try {
       const response = await api.get<{ success: boolean; data: DartHealthStatus }>(
-        '/dart/health'
+        '/api/dart/health'
       )
       return response.data.data
     } catch (error) {
@@ -179,7 +179,7 @@ export const dartApi = {
     try {
       const queryParams = date ? `?date=${date}` : ''
       const response = await api.get<{ success: boolean; data: DartStats }>(
-        `/dart/stats${queryParams}`
+        `/api/dart/stats${queryParams}`
       )
       return response.data.data
     } catch (error) {
@@ -192,7 +192,7 @@ export const dartApi = {
   async getBatchStatus(): Promise<DartBatchStatus> {
     try {
       const response = await api.get<{ success: boolean; data: DartBatchStatus }>(
-        '/dart/batch/status'
+        '/api/dart/batch/status'
       )
       return response.data.data
     } catch (error) {
@@ -205,7 +205,7 @@ export const dartApi = {
   async scheduleDailyBatch(date: string, options: { sentimentOnly?: boolean } = {}): Promise<DartBatchResult> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResult }>(
-        '/dart/batch/daily',
+        '/api/dart/batch/daily',
         { date, options }
       )
       return response.data.data
@@ -219,7 +219,7 @@ export const dartApi = {
   async scheduleFinancialBatch(businessYear: string): Promise<DartBatchResult> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResult }>(
-        '/dart/batch/financial',
+        '/api/dart/batch/financial',
         { businessYear }
       )
       return response.data.data
@@ -234,7 +234,7 @@ export const dartApi = {
     try {
       const testDate = date || new Date().toISOString().split('T')[0]
       const response = await api.post<{ success: boolean; testType: string; testDate: string; data: any }>(
-        '/dart/test',
+        '/api/dart/test',
         { testType, date: testDate }
       )
       return {

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "dotenv -e .env -- node dist/server.js",
     "start:prod": "dotenv -e .env.production -- node dist/server.js",
-    "start:scheduler": "dotenv -e .env.production -- node -r ts-node/register -r tsconfig-paths/register -e \"require('./src/services/infrastructure/scheduler').startDataCollectionScheduler()\"",
+    "start:scheduler": "dotenv -e .env.production -- npx ts-node -r tsconfig-paths/register -e \"import('./src/services/infrastructure/scheduler.js').then(m => { m.startDataCollectionScheduler(); console.log('Scheduler started successfully'); }).catch(console.error)\"",
     "dev": "dotenv -e .env -- nodemon --exec \"ts-node -r tsconfig-paths/register\" src/server.ts",
     "build": "tsc",
     "build:prod": "dotenv -e .env.production -- tsc",

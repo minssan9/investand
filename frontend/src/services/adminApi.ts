@@ -127,7 +127,7 @@ export const adminApi = {
   async collectData(request: DataCollectionRequest): Promise<DataCollectionResponse> {
     try {
       const response = await api.post<{ success: boolean; data: DataCollectionResponse }>(
-        '/admin/collect-data', 
+        '/api/admin/collect-data', 
         request
       )
       return response.data.data
@@ -141,7 +141,7 @@ export const adminApi = {
   async calculateIndex(request: CalculateIndexRequest): Promise<CalculateIndexResponse> {
     try {
       const response = await api.post<{ success: boolean; data: CalculateIndexResponse }>(
-        '/admin/calculate-index',
+        '/api/admin/calculate-index',
         request
       )
       return response.data.data
@@ -154,7 +154,7 @@ export const adminApi = {
   async recalculateRange(startDate: string, endDate: string): Promise<any[]> {
     try {
       const response = await api.post<{ success: boolean; data: any[] }>(
-        '/admin/recalculate-range',
+        '/api/admin/recalculate-range',
         { startDate, endDate }
       )
       return response.data.data
@@ -168,7 +168,7 @@ export const adminApi = {
   async scheduleDartDailyBatch(request: DartBatchRequest): Promise<DartBatchResponse> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResponse }>(
-        '/dart/batch/daily',
+        '/api/dart/batch/daily',
         request
       )
       return response.data.data
@@ -181,7 +181,7 @@ export const adminApi = {
   async scheduleDartFinancialBatch(request: DartFinancialBatchRequest): Promise<DartBatchResponse> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResponse }>(
-        '/dart/batch/financial',
+        '/api/dart/batch/financial',
         request
       )
       return response.data.data
@@ -194,7 +194,7 @@ export const adminApi = {
   async getDartBatchStatus(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/dart/batch/status'
+        '/api/dart/batch/status'
       )
       return response.data.data
     } catch (error) {
@@ -206,7 +206,7 @@ export const adminApi = {
   async getDartHealth(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/dart/health'
+        '/api/dart/health'
       )
       return response.data.data
     } catch (error) {
@@ -219,7 +219,7 @@ export const adminApi = {
     try {
       const queryParams = date ? `?date=${date}` : ''
       const response = await api.get<{ success: boolean; data: any }>(
-        `/dart/stats${queryParams}`
+        `/api/dart/stats${queryParams}`
       )
       return response.data.data
     } catch (error) {
@@ -232,7 +232,7 @@ export const adminApi = {
   async calculateFearGreedIndex(request: FearGreedCalculationRequest): Promise<CalculateIndexResponse> {
     try {
       const response = await api.post<{ success: boolean; data: CalculateIndexResponse }>(
-        '/fear-greed/calculate',
+        '/api/fear-greed/calculate',
         request
       )
       return response.data.data
@@ -245,7 +245,7 @@ export const adminApi = {
   async recalculateFearGreedRange(request: FearGreedRangeRequest): Promise<FearGreedRangeResponse[]> {
     try {
       const response = await api.post<{ success: boolean; data: FearGreedRangeResponse[] }>(
-        '/fear-greed/recalculate-range',
+        '/api/fear-greed/recalculate-range',
         request
       )
       return response.data.data
@@ -258,7 +258,7 @@ export const adminApi = {
   async getFearGreedCurrent(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/fear-greed/current'
+        '/api/fear-greed/current'
       )
       return response.data.data
     } catch (error) {
@@ -270,7 +270,7 @@ export const adminApi = {
   async getFearGreedHistory(days: number = 30): Promise<any[]> {
     try {
       const response = await api.get<{ success: boolean; data: any[] }>(
-        `/fear-greed/history?days=${days}`
+        `/api/fear-greed/history?days=${days}`
       )
       return response.data.data
     } catch (error) {
@@ -282,7 +282,7 @@ export const adminApi = {
   async getFearGreedStats(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/fear-greed/stats'
+        '/api/fear-greed/stats'
       )
       return response.data.data
     } catch (error) {
