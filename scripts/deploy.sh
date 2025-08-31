@@ -1,17 +1,18 @@
 #!/bin/bash
 
-# Production Deployment Script for Fear & Greed Index
-# Zero-downtime blue-green deployment with health checks and rollback capability
-# Usage: ./deploy.sh [--rollback] [--skip-backup] [--skip-health-check]
+# Unified Deployment Script for Fear & Greed Index
+# Supports multiple environments via docker-compose profiles
+# Usage: ./deploy.sh [--rollback] [--skip-backup]
+# Environment: Set ENVIRONMENT=production|staging|development (default: production)
 
 set -euo pipefail
 
 # Configuration
 APP_DIR="/home/min/fg-index"
 LOG_FILE="$APP_DIR/logs/deploy.log"
-COMPOSE_FILE="$APP_DIR/docker-compose.prod.yml"
+COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 BACKUP_DIR="$APP_DIR/backups"
-DOMAIN="investand.voyagerss.com"
+ENVIRONMENT=${ENVIRONMENT:-production}
 
 # Colors for output
 RED='\033[0;31m'
@@ -23,7 +24,6 @@ NC='\033[0m'
 # Flags
 ROLLBACK=false
 SKIP_BACKUP=false
-SKIP_HEALTH_CHECK=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -36,13 +36,9 @@ while [[ $# -gt 0 ]]; do
             SKIP_BACKUP=true
             shift
             ;;
-        --skip-health-check)
-            SKIP_HEALTH_CHECK=true
-            shift
-            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--rollback] [--skip-backup] [--skip-health-check]"
+            echo "Usage: $0 [--rollback] [--skip-backup]"
             exit 1
             ;;
     esac
@@ -110,8 +106,8 @@ backup_state() {
     local backup_name="pre_deploy_$(date +%Y%m%d_%H%M%S)"
     
     # Backup database
-    if docker ps --format '{{.Names}}' | grep -q "fg-database-prod"; then
-        docker exec fg-database-prod pg_dump -U "${DATABASE_USER:-fg_user}" -d "${DATABASE_NAME:-fg_index_prod}" > "$BACKUP_DIR/${backup_name}.sql"
+    if docker ps --format '{{.Names}}' | grep -q "fg-database"; then
+        docker exec fg-database pg_dump -U "${DATABASE_USER:-fg_user}" -d "${DATABASE_NAME:-fg_index_prod}" > "$BACKUP_DIR/${backup_name}.sql"
         gzip "$BACKUP_DIR/${backup_name}.sql"
         log "Database backup created: ${backup_name}.sql.gz"
     else
@@ -170,8 +166,8 @@ pull_images() {
         echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${GITHUB_ACTOR:-}" --password-stdin
     fi
     
-    # Pull images with timeout
-    timeout 300 docker-compose -f "$COMPOSE_FILE" pull || {
+    # Pull images with timeout using profiles
+    timeout 300 docker-compose -f "$COMPOSE_FILE" --profile "$ENVIRONMENT" pull || {
         error "Failed to pull Docker images within timeout"
         return 1
     }
@@ -181,32 +177,17 @@ pull_images() {
 
 # Health check function
 health_check() {
-    local max_attempts=12
-    local wait_time=5
+    local max_attempts=5
+    local wait_time=10
     local attempt=1
     
     log "Performing health checks..."
     
     while [ $attempt -le $max_attempts ]; do
-        local health_status=0
-        
         # Check main health endpoint
-        if ! curl -f -s --max-time 10 "http://localhost/health" >/dev/null; then
-            health_status=1
-        fi
-        
-        # Check API health endpoint
-        if ! curl -f -s --max-time 10 "http://localhost/api/health" >/dev/null; then
-            health_status=1
-        fi
-        
-        # Check HTTPS endpoint
-        if ! curl -f -s --max-time 10 "https://$DOMAIN/health" >/dev/null; then
-            health_status=1
-        fi
-        
-        if [ $health_status -eq 0 ]; then
-            log "✅ All health checks passed"
+        if curl -f -s --max-time 10 "http://localhost/health" >/dev/null && \
+           curl -f -s --max-time 10 "http://localhost/api/health" >/dev/null; then
+            log "✅ Health checks passed"
             return 0
         fi
         
@@ -219,46 +200,12 @@ health_check() {
     return 1
 }
 
-# Blue-green deployment
+# Simple deployment
 deploy_services() {
-    log "Starting blue-green deployment..."
+    log "Starting deployment..."
     
-    # Check current running containers
-    local running_containers=$(docker-compose -f "$COMPOSE_FILE" ps -q)
-    
-    if [ -n "$running_containers" ]; then
-        log "Current services are running, performing blue-green deployment"
-        
-        # Scale up new containers alongside old ones
-        log "Scaling up new containers..."
-        docker-compose -f "$COMPOSE_FILE" up -d --scale backend=2 --scale frontend=2 --no-recreate
-        
-        # Wait for new containers to be healthy
-        sleep 30
-        
-        # Check if new containers are healthy
-        local new_backend=$(docker ps --format '{{.Names}}' | grep "backend" | tail -n1)
-        local new_frontend=$(docker ps --format '{{.Names}}' | grep "frontend" | tail -n1)
-        
-        if docker exec "$new_backend" sh -c 'curl -f http://localhost:3000/api/health' >/dev/null 2>&1; then
-            log "New backend container is healthy"
-        else
-            error "New backend container health check failed"
-            return 1
-        fi
-        
-        # Switch traffic to new containers by recreating proxy
-        log "Switching traffic to new containers..."
-        docker-compose -f "$COMPOSE_FILE" up -d --force-recreate nginx
-        
-        # Remove old containers
-        sleep 10
-        docker-compose -f "$COMPOSE_FILE" up -d --scale backend=1 --scale frontend=1 --remove-orphans
-        
-    else
-        log "No existing containers, performing fresh deployment"
-        docker-compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
-    fi
+    # Deploy services with environment profile
+    docker-compose -f "$COMPOSE_FILE" --profile "$ENVIRONMENT" up -d --remove-orphans
     
     # Wait for services to stabilize
     log "Waiting for services to stabilize..."
@@ -275,14 +222,14 @@ run_migrations() {
     log "Running database migrations..."
     
     # Check if backend container is running
-    if docker ps --format '{{.Names}}' | grep -q "fg-backend-prod"; then
+    if docker ps --format '{{.Names}}' | grep -q "fg-backend"; then
         # Run Prisma migrations
-        docker exec fg-backend-prod npm run db:migrate || {
+        docker exec fg-backend npm run db:migrate || {
             warn "Database migrations failed, but continuing deployment"
         }
         
         # Generate Prisma client
-        docker exec fg-backend-prod npm run db:generate || {
+        docker exec fg-backend npm run db:generate || {
             warn "Prisma client generation failed"
         }
     else
@@ -332,13 +279,13 @@ rollback() {
     local latest_backup=$(ls -t "$BACKUP_DIR"/pre_deploy_*.sql.gz 2>/dev/null | head -n1)
     if [ -n "$latest_backup" ]; then
         warn "Restoring database from backup: $(basename "$latest_backup")"
-        gunzip -c "$latest_backup" | docker exec -i fg-database-prod psql -U "${DATABASE_USER:-fg_user}" -d "${DATABASE_NAME:-fg_index_prod}"
+        gunzip -c "$latest_backup" | docker exec -i fg-database psql -U "${DATABASE_USER:-fg_user}" -d "${DATABASE_NAME:-fg_index_prod}"
     fi
     
     # Restart services with previous configuration
-    docker-compose -f "$COMPOSE_FILE" down
+    docker-compose -f "$COMPOSE_FILE" --profile "$ENVIRONMENT" down
     sleep 5
-    docker-compose -f "$COMPOSE_FILE" up -d
+    docker-compose -f "$COMPOSE_FILE" --profile "$ENVIRONMENT" up -d
     
     error "Rollback completed"
     exit 1
@@ -364,7 +311,6 @@ main() {
     log "Starting Fear & Greed Index deployment..."
     log "Rollback mode: $ROLLBACK"
     log "Skip backup: $SKIP_BACKUP"
-    log "Skip health check: $SKIP_HEALTH_CHECK"
     
     check_user
     cd_to_app_dir
@@ -380,10 +326,8 @@ main() {
     run_migrations
     
     # Post-deployment validation
-    if [ "$SKIP_HEALTH_CHECK" != true ]; then
-        if ! health_check; then
-            rollback
-        fi
+    if ! health_check; then
+        rollback
     fi
     
     # Cleanup
@@ -393,13 +337,12 @@ main() {
     local commit=$(git rev-parse --short HEAD)
     log "✅ Deployment completed successfully!"
     log "Deployed commit: $commit"
-    log "Domain: https://$DOMAIN"
     
     send_notification "✅ SUCCESS" "Deployment completed for commit $commit"
     
     # Show service status
     info "Service status:"
-    docker-compose -f "$COMPOSE_FILE" ps
+    docker-compose -f "$COMPOSE_FILE" --profile "$ENVIRONMENT" ps
 }
 
 # Trap errors and rollback

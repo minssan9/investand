@@ -1,5 +1,74 @@
 {
+  "name": "kospi-fg-index",
+  "version": "1.0.0",
+  "description": "KOSPI Fear & Greed Index - Korean Stock Market Sentiment Analyzer",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "setup": "./scripts/fg-manager.sh setup",
+    "start": "./scripts/fg-manager.sh start",
+    "start:dev": "./scripts/fg-manager.sh dev",
+    "start:prod": "ENVIRONMENT=production ./scripts/fg-manager.sh start production",
+    "start:staging": "ENVIRONMENT=staging ./scripts/fg-manager.sh start staging",
+    "stop": "./scripts/fg-manager.sh stop",
+    "restart": "./scripts/fg-manager.sh restart",
+    "restart:prod": "ENVIRONMENT=production ./scripts/fg-manager.sh restart production",
+    "restart:staging": "ENVIRONMENT=staging ./scripts/fg-manager.sh restart staging",
+    "status": "./scripts/fg-manager.sh status",
+    "logs": "./scripts/fg-manager.sh logs",
+    "logs:backend": "./scripts/fg-manager.sh logs backend",
+    "logs:frontend": "./scripts/fg-manager.sh logs frontend",
+    "build": "./scripts/fg-manager.sh build",
+    "test": "./scripts/fg-manager.sh test",
+    "health": "./scripts/fg-manager.sh health",
+    "backup": "./scripts/fg-manager.sh backup",
+    "clean": "./scripts/fg-manager.sh clean",
+    "deploy": "./scripts/fg-manager.sh deploy",
+    "deploy:prod": "ENVIRONMENT=production ./scripts/fg-manager.sh deploy production",
+    "deploy:staging": "ENVIRONMENT=staging ./scripts/fg-manager.sh deploy staging",
+    "rollback": "./scripts/fg-manager.sh rollback",
+    "shell:backend": "./scripts/fg-manager.sh shell backend",
+    "shell:frontend": "./scripts/fg-manager.sh shell frontend",
+    "shell:database": "./scripts/fg-manager.sh shell database",
+    "migrate": "./scripts/docker-utils.sh migrate",
+    "env:setup": "./scripts/env-utils.sh setup",
+    "env:validate": "./scripts/env-utils.sh validate",
+    "env:switch:dev": "./scripts/env-utils.sh switch dev",
+    "env:switch:staging": "./scripts/env-utils.sh switch staging",
+    "env:switch:prod": "./scripts/env-utils.sh switch prod",
+    "docker:up": "./scripts/docker-utils.sh up",
+    "docker:down": "./scripts/docker-utils.sh down",
+    "docker:clean": "./scripts/docker-utils.sh clean",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install && cd ..",
+    "update:all": "npm update && cd backend && npm update && cd ../frontend && npm update && cd .."
+  },
+  "keywords": [
+    "kospi",
+    "fear-greed-index",
+    "stock-market",
+    "korean-market",
+    "financial-sentiment",
+    "market-analysis"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
   "dependencies": {
     "axios": "^1.11.0"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/username/kospi-fg-index.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/kospi-fg-index/issues"
+  },
+  "homepage": "https://github.com/username/kospi-fg-index#readme"
 }

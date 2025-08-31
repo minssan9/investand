@@ -1,254 +1,128 @@
-# GitHub Actions Workflows for Windows Local Runner
+# GitHub Actions Workflows
 
-This directory contains GitHub Actions workflows for deploying the KOSPI Fear & Greed Index backend server on a Windows local runner using Docker.
+Simplified CI/CD workflows for the KOSPI Fear & Greed Index project.
 
-## Available Workflows
+## Main Workflow
 
-### 1. `backend-windows-runner.yml`
-- **Purpose**: Deploy backend using individual Docker commands
-- **Features**: 
-  - Direct Docker container management
-  - Individual container health checks
-  - Local environment file configuration
-  - Cleanup of old images
+### Production Deployment (`deploy.yml`)
+- **Trigger**: Push to `main` or `master` branch
+- **Purpose**: Complete CI/CD pipeline for production deployment
 
-### 2. `backend-windows-compose.yml`
-- **Purpose**: Deploy backend using Docker Compose
-- **Features**:
-  - Multi-service orchestration
-  - Automatic service dependency management
-  - Database migrations
-  - Redis health checks
-  - Better service isolation
-  - Local environment file configuration
+**Pipeline Steps**:
+1. **Test**: Run backend and frontend tests with linting
+2. **Security**: Vulnerability scanning with Trivy
+3. **Build**: Build and push Docker images to GitHub Container Registry
+4. **Deploy**: Deploy to production server using SSH
+5. **Notify**: Send deployment status to Slack (optional)
 
-## Prerequisites
+## Required GitHub Secrets
 
-### Windows Runner Setup (Windows)
-1. **Install Docker Desktop for Windows**
-   ```powershell
-   # Download and install from: https://www.docker.com/products/docker-desktop
-   # Enable WSL 2 backend for better performance
-   ```
+Configure these secrets in your GitHub repository (Settings → Secrets and variables → Actions):
 
-2. **Install Git**
-   ```powershell
-   # Download from: https://git-scm.com/download/win
-   ```
+```yaml
+# Server Access
+VM_HOST: "your-server-ip-or-domain"
+VM_USER: "your-username"  
+VM_SSH_KEY: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  [Your private key content]
+  -----END OPENSSH PRIVATE KEY-----
 
-3. **Configure Docker**
-   ```powershell
-   # Start Docker Desktop
-   # Ensure Docker is running and accessible
-   docker --version
-   docker-compose --version
-   ```
+# Application Environment Variables
+DATABASE_URL: "postgresql://user:password@database:5432/dbname"
+DATABASE_NAME: "fg_index_prod"
+DATABASE_USER: "fg_user"
+DATABASE_PASSWORD: "secure_password"
+KIS_API_KEY: "your_korea_investment_api_key"
+KIS_API_SECRET: "your_korea_investment_api_secret"
+BOK_API_KEY: "your_bank_of_korea_api_key"
+DART_API_KEY: "your_dart_api_key"
+REDIS_URL: "redis://:password@redis:6379/0"
+REDIS_PASSWORD: "secure_redis_password"
+JWT_SECRET: "your_jwt_secret_min_32_chars"
+ADMIN_PASSWORD: "secure_admin_password"
+CERTBOT_EMAIL: "your-email@domain.com"
 
-4. **Register Self-Hosted Runner**
-   ```powershell
-   # The runner 'Windows' should be registered and running
-   # Check runner status in GitHub repository settings
-   ```
-
-### Environment Configuration
-Create a `.env` file in your system root directory (C:\ or D:\) with the following variables:
-
-```env
-NODE_ENV=production
-PORT=3000
-DATABASE_URL=mysql://user:password@host:3306/database_name
-REDIS_URL=redis://localhost:6379
-API_KEY=your-api-key-here
-LOG_LEVEL=info
+# Optional
+SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
 ```
 
-**File Locations (in order of preference):**
-1. `C:\.env` - Primary location
-2. `D:\.env` - Secondary location
-3. Default values - If no .env file is found
+## How It Works
+
+### Automated Deployment
+1. Push code to `main` branch
+2. GitHub Actions automatically:
+   - Runs tests and linting
+   - Scans for security vulnerabilities
+   - Builds Docker images
+   - Deploys to your server
+   - Runs health checks
+   - Sends notifications
+
+### Security Features
+- **Trivy scanning**: Detects vulnerabilities in code and dependencies
+- **SARIF upload**: Results appear in GitHub Security tab
+- **Container scanning**: Scans Docker images before deployment
+
+### Deployment Features
+- **Zero-downtime**: Uses Docker Compose for seamless updates
+- **Health checks**: Validates application is running properly
+- **Automatic rollback**: Falls back to previous version on failure
+- **Backup creation**: Creates database backup before deployment
 
 ## Usage
 
-### Automatic Triggers
-- **Push to main/master/develop**: Automatically triggers deployment when backend files change
-- **Pull Request**: Runs deployment for testing on PRs
-- **Manual Trigger**: Use the "workflow_dispatch" trigger with environment selection
-
-### Manual Execution
-1. Go to your GitHub repository
-2. Navigate to "Actions" tab
-3. Select the desired workflow
-4. Click "Run workflow"
-5. Choose the environment (development/production)
-6. Click "Run workflow"
-
-## Workflow Steps
-
-### Common Steps (Both Workflows)
-1. **Checkout Code**: Clone the repository
-2. **Setup Docker**: Configure Docker Buildx
-3. **Environment Setup**: Copy `.env` file from system root to backend directory
-4. **Build & Deploy**: Build Docker image and start containers
-5. **Health Checks**: Verify services are running
-6. **Testing**: Run basic tests
-7. **Cleanup**: Remove old Docker images
-
-### Docker Compose Specific Steps
-- **Service Orchestration**: Start all services (backend, collector, redis)
-- **Database Migrations**: Run Prisma migrations
-- **Multi-service Health Checks**: Check backend and Redis
-- **Service Logs**: Display logs from all services
-
-## Environment Variables
-
-The workflows automatically copy a `.env` file from your system root with the following variables:
-
-```env
-NODE_ENV=production
-PORT=3000
-DATABASE_URL=mysql://user:password@host:3306/database_name
-REDIS_URL=redis://localhost:6379
-API_KEY=your-api-key-here
-LOG_LEVEL=info
+### Normal Deployment
+```bash
+git add .
+git commit -m "feat: your changes"
+git push origin main
 ```
 
-### Default Values (if no .env file found)
-If no `.env` file is found in the system root, the workflow will create one with these defaults:
-- `DATABASE_URL=mysql://localhost:3306/kospi_fg`
-- `REDIS_URL=redis://localhost:6379`
-- `API_KEY=local-dev-key`
-
-## Health Check Endpoints
-
-The workflows expect the following health check endpoints:
-
-- **Backend Health**: `http://localhost:3000/health`
-- **Redis Health**: `redis-cli ping` (returns PONG)
+### Monitor Deployment
+- Check GitHub Actions tab in your repository
+- Watch for Slack notifications (if configured)
+- Verify health at your application URL
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Docker not running**
-   ```powershell
-   # Start Docker Desktop
-   # Check Docker status
-   docker info
-   ```
+**SSH Connection Failed**
+- Verify `VM_SSH_KEY` is properly formatted (include headers/footers)
+- Check `VM_HOST` and `VM_USER` are correct
+- Ensure SSH key is added to server's authorized_keys
 
-2. **Environment file not found**
-   ```powershell
-   # Check if .env file exists in root
-   dir C:\.env
-   dir D:\.env
-   # Create .env file if needed
-   echo NODE_ENV=production > C:\.env
-   echo DATABASE_URL=mysql://localhost:3306/kospi_fg >> C:\.env
-   # Add other required variables...
-   ```
+**Health Check Failed**
+- SSH into server and check: `docker ps`
+- View logs: `docker-compose logs`
+- Check health endpoints: `curl http://localhost/health`
 
-3. **Port conflicts**
-   ```powershell
-   # Check what's using port 3000
-   netstat -ano | findstr :3000
-   # Kill process if needed
-   taskkill /PID <process-id> /F
-   ```
+**Build Failed**
+- Review build logs in GitHub Actions
+- Check Docker file syntax
+- Verify package.json dependencies
 
-4. **Container startup issues**
-   ```powershell
-   # Check container logs
-   docker logs kospi-backend
-   # Check container status
-   docker ps -a
-   ```
+### Manual Recovery
+If automated deployment fails:
+```bash
+# SSH to server
+ssh user@your-server
 
-5. **Runner not available**
-   ```powershell
-   # Check if Windows runner is online
-   # Go to GitHub repository settings > Actions > Runners
-   # Ensure the runner is registered and running
-   ```
+# Navigate to app directory
+cd /home/min/fg-index
 
-### Debug Commands
+# Manual deployment
+./scripts/deploy.sh
 
-```powershell
-# Check Docker status
-docker info
-
-# List all containers
-docker ps -a
-
-# Check Docker Compose services
-docker-compose ps
-
-# View logs
-docker-compose logs backend
-docker-compose logs collector
-
-# Access container shell
-docker exec -it kospi-backend sh
-
-# Check environment file
-type backend\.env
-
-# Check runner status
-# Go to GitHub repository settings > Actions > Runners
+# Check status
+docker ps
 ```
 
-## Monitoring
+## Best Practices
 
-### Service Status
-- Backend API: `http://localhost:3000`
-- Redis: `localhost:6379`
-- Container logs: Available in GitHub Actions output
-- Runner: Windows
-
-### Log Files
-- Application logs: Mounted to `./logs` directory
-- Docker logs: Available via `docker logs` commands
-
-## Security Considerations
-
-1. **Local Environment Management**: Environment variables are managed locally on the runner
-2. **Environment Isolation**: Production and development environments are separated
-3. **Container Security**: Running containers as non-root user
-4. **Network Isolation**: Services run in isolated Docker networks
-5. **File Permissions**: Ensure `.env` file has appropriate permissions
-6. **Runner Security**: Windows runner should be properly secured
-
-## Performance Optimization
-
-1. **Docker Layer Caching**: Optimized Dockerfile for faster builds
-2. **Multi-stage Builds**: Separate build and runtime stages
-3. **Image Cleanup**: Automatic cleanup of old images
-4. **Resource Limits**: Consider setting memory and CPU limits for containers
-
-## Local Environment Setup
-
-### Creating the .env file
-```powershell
-# Create .env file in system root
-echo NODE_ENV=production > C:\.env
-echo PORT=3000 >> C:\.env
-echo DATABASE_URL=mysql://user:password@host:3306/database_name >> C:\.env
-echo REDIS_URL=redis://localhost:6379 >> C:\.env
-echo API_KEY=your-secure-api-key >> C:\.env
-echo LOG_LEVEL=info >> C:\.env
-```
-
-### Environment File Security
-- Keep your `.env` file secure and don't commit it to version control
-- Use strong, unique API keys
-- Regularly rotate sensitive credentials
-- Consider using Windows file permissions to restrict access
-
-## Support
-
-For issues with the workflows:
-1. Check the GitHub Actions logs for detailed error messages
-2. Verify all prerequisites are met
-3. Ensure Docker Desktop is running
-4. Check that the `.env` file exists in the system root
-5. Verify the `.env` file contains all required variables
-6. Ensure Windows runner is online and available 
+- **Test locally** before pushing to main
+- **Monitor logs** in GitHub Actions for any issues  
+- **Keep secrets updated** and rotate regularly
+- **Review security scan results** in GitHub Security tab
+- **Use descriptive commit messages** for deployment tracking 

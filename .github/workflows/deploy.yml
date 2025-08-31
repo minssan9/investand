@@ -1,10 +1,11 @@
-name: CI/CD Production Deployment
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 env:
   REGISTRY: ghcr.io
@@ -14,17 +15,14 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18, 20]
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup Node.js ${{ matrix.node-version }}
+    - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: '20'
         cache: 'npm'
     
     # Backend Tests
@@ -33,14 +31,10 @@ jobs:
         cd backend
         npm ci
     
-    - name: Run Backend Linting
+    - name: Run Backend Linting & Tests
       run: |
         cd backend
         npm run lint
-    
-    - name: Run Backend Tests
-      run: |
-        cd backend
         npm test
       env:
         NODE_ENV: test
@@ -52,14 +46,10 @@ jobs:
         cd frontend
         npm ci
     
-    - name: Run Frontend Linting
+    - name: Run Frontend Linting & Tests
       run: |
         cd frontend
         npm run lint
-    
-    - name: Run Frontend Tests
-      run: |
-        cd frontend
         npm test
     
     - name: Build Frontend
@@ -86,21 +76,14 @@ jobs:
         output: 'trivy-results.sarif'
     
     - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: 'trivy-results.sarif'
-    
-    - name: Run Snyk Security Scan
-      uses: snyk/actions/node@master
-      continue-on-error: true
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      with:
-        args: --severity-threshold=high
 
   build:
     runs-on: ubuntu-latest
     needs: [test, security]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     permissions:
       contents: read
       packages: write
@@ -118,34 +101,14 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
-    - name: Extract metadata for Backend
-      id: meta-backend
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-    
-    - name: Extract metadata for Frontend
-      id: meta-frontend
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-    
     - name: Build and push Backend Docker image
       uses: docker/build-push-action@v5
       with:
         context: ./backend
         push: true
-        tags: ${{ steps.meta-backend.outputs.tags }}
-        labels: ${{ steps.meta-backend.outputs.labels }}
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
@@ -155,8 +118,9 @@ jobs:
       with:
         context: ./frontend
         push: true
-        tags: ${{ steps.meta-frontend.outputs.tags }}
-        labels: ${{ steps.meta-frontend.outputs.labels }}
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
@@ -164,25 +128,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     environment: production
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup SSH Key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
-    
-    - name: Deploy to Production VM
-      run: |
-        ssh -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'EOF'
+    - name: Deploy to Production
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VM_HOST }}
+        username: ${{ secrets.VM_USER }}
+        key: ${{ secrets.VM_SSH_KEY }}
+        script: |
           set -e
-          
-          # Navigate to application directory
           cd /home/min/fg-index
           
           # Pull latest code
@@ -205,156 +164,52 @@ jobs:
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
           CERTBOT_EMAIL=${{ secrets.CERTBOT_EMAIL }}
-          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
           EOL
           
           # Login to GitHub Container Registry
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # Backup current state
+          # Backup and deploy
           if docker ps -q --filter "name=fg-"; then
             echo "Creating backup..."
-            docker exec fg-database-prod pg_dump -U ${{ secrets.DATABASE_USER }} -d ${{ secrets.DATABASE_NAME }} | gzip > "backups/pre_deploy_$(date +%Y%m%d_%H%M%S).sql.gz" || echo "Backup failed"
+            ./scripts/backup.sh
           fi
           
-          # Pull latest images
+          # Pull latest images and deploy
           docker-compose -f docker-compose.prod.yml pull
-          
-          # Deploy with zero downtime using blue-green strategy
-          if docker ps -q --filter "name=fg-"; then
-            echo "Performing blue-green deployment..."
-            ./scripts/deploy.sh --skip-backup
-          else
-            echo "Fresh deployment..."
-            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
-          fi
+          docker-compose -f docker-compose.prod.yml up -d --remove-orphans
           
           # Wait for services to be healthy
-          echo "Waiting for services to be healthy..."
-          sleep 45
+          sleep 30
           
-          # Health check with retries
-          for i in {1..10}; do
+          # Health check
+          for i in {1..5}; do
             if curl -f http://localhost/health && curl -f http://localhost/api/health; then
               echo "✅ Deployment successful!"
               break
-            elif [ $i -eq 10 ]; then
-              echo "❌ Health check failed after 10 attempts, rolling back..."
-              if [ -f "backups/pre_deploy_$(date +%Y%m%d_*)*.sql.gz" ]; then
-                echo "Rolling back..."
-                ./scripts/deploy.sh --rollback
-              fi
+            elif [ $i -eq 5 ]; then
+              echo "❌ Health check failed"
               exit 1
             else
-              echo "Health check $i/10 failed, retrying in 10s..."
+              echo "Health check $i/5 failed, retrying..."
               sleep 10
             fi
           done
           
           # Clean up old images
           docker image prune -f
-          
-          # Send success notification
-          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
-            curl -X POST -H 'Content-type: application/json' \
-              --data '{"text":"🚀 Production deployment successful for investand.voyagerss.com - commit ${{ github.sha }}"}' \
-              ${{ secrets.SLACK_WEBHOOK_URL }}
-          fi
-        EOF
-    
-    - name: Verify SSL Certificate
-      run: |
-        ssh ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'EOF'
-          # Check SSL certificate status
-          if certbot certificates | grep -q "investand.voyagerss.com"; then
-            echo "✅ SSL certificate is active"
-            # Check expiry
-            days_left=$(openssl x509 -in /etc/letsencrypt/live/investand.voyagerss.com/fullchain.pem -text -noout | grep "Not After" | awk -F': ' '{print $2}' | xargs -I{} date -d "{}" +%s)
-            current=$(date +%s)
-            days=$(( (days_left - current) / 86400 ))
-            if [ $days -lt 30 ]; then
-              echo "⚠️  SSL certificate expires in $days days"
-            fi
-          else
-            echo "⚠️  SSL certificate needs attention"
-            # Attempt to obtain certificate
-            sudo certbot --nginx -d investand.voyagerss.com --non-interactive --agree-tos --email ${{ secrets.CERTBOT_EMAIL }}
-          fi
-        EOF
-    
-    - name: Post-deployment Health Check
-      run: |
-        sleep 15
-        max_attempts=5
-        for i in $(seq 1 $max_attempts); do
-          if curl -f https://investand.voyagerss.com/health; then
-            echo "✅ Production site is healthy"
-            break
-          elif [ $i -eq $max_attempts ]; then
-            echo "❌ Production site health check failed after $max_attempts attempts"
-            exit 1
-          else
-            echo "Health check $i/$max_attempts failed, retrying in 10s..."
-            sleep 10
-          fi
-        done
     
     - name: Notify Deployment Status
       if: always()
       run: |
         if [ "${{ job.status }}" == "success" ]; then
-          STATUS="✅ SUCCESS"
-          COLOR="good"
-          MESSAGE="Production deployment successful for commit ${{ github.sha }}"
+          STATUS="✅ Deployment successful"
         else
-          STATUS="❌ FAILED"
-          COLOR="danger" 
-          MESSAGE="Production deployment FAILED for commit ${{ github.sha }}"
+          STATUS="❌ Deployment failed"
         fi
         
         if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
           curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"$STATUS: $MESSAGE - investand.voyagerss.com\", \"color\":\"$COLOR\"}" \
+            --data "{\"text\":\"$STATUS for commit ${{ github.sha }}\"}" \
             ${{ secrets.SLACK_WEBHOOK_URL }}
         fi
-
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Run production security scan
-      run: |
-        # OWASP ZAP baseline scan
-        docker run -t owasp/zap2docker-stable zap-baseline.py \
-          -t https://investand.voyagerss.com -J zap-report.json || true
-        
-        # SSL Labs scan simulation
-        curl -s "https://api.ssllabs.com/api/v3/analyze?host=investand.voyagerss.com&publish=off&all=done" || true
-
-  cleanup:
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: always()
-    
-    steps:
-    - name: Cleanup old container images
-      run: |
-        ssh ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'EOF'
-          # Clean up dangling images and unused containers
-          docker system prune -f
-          
-          # Remove old images (keep last 5 versions)
-          for service in backend frontend; do
-            docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}" | \
-              grep "ghcr.io/minssan9/kospi-fg-index-$service" | \
-              tail -n +6 | \
-              awk '{print $1":"$2}' | \
-              xargs -r docker rmi || true
-          done
-          
-          # Clean up old backups (keep last 7)
-          find /home/min/fg-index/backups -name "pre_deploy_*.sql.gz" -type f | \
-            sort -r | tail -n +8 | xargs -r rm -f || true
-        EOF

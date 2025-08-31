@@ -102,78 +102,78 @@ git clone https://github.com/username/kospi-fg-index.git
 cd kospi-fg-index
 ```
 
-### 2. 환경 변수 설정
+### 2. 프로젝트 초기 설정
 
 #### 자동 설정 (권장)
 ```bash
-# 자동 환경 설정 스크립트 실행
-./scripts/setup-env.sh
+# 전체 프로젝트 자동 설정 (환경변수 + 의존성 + Docker)
+npm run setup
 ```
 
 #### 수동 설정
 ```bash
-# Backend 환경 변수 템플릿 복사
-cp backend/env.template backend/.env
+# 1. 환경 변수 설정
+npm run env:setup
 
-# Frontend 환경 변수 템플릿 복사
-cp frontend/env.template frontend/.env
+# 2. 의존성 설치
+npm run install:all
 
-# API 키 및 데이터베이스 설정 입력
-nano backend/.env
+# 3. 환경 검증
+npm run env:validate
 ```
 
-🔗 **자세한 설정 가이드**: [LOCAL_ENV_SETUP.md](LOCAL_ENV_SETUP.md)
+🔗 **자세한 설정 가이드**: [docs/setup/LOCAL_SETUP.md](docs/setup/LOCAL_SETUP.md)
 
-### 3. 데이터베이스 설정
+### 3. 개발 서버 실행
 
 ```bash
-# PostgreSQL 데이터베이스 생성
-createdb feargreed
+# 개발 환경 시작 (추천)
+npm run start:dev
 
-# 데이터베이스 마이그레이션
-npm run db:migrate
-
-# 초기 데이터 시드
-npm run db:seed
+# 또는 단계별 실행
+npm run docker:up        # Docker 서비스 시작
+npm run migrate          # 데이터베이스 마이그레이션
+npm start               # 애플리케이션 시작
 ```
 
-### 4. 의존성 설치
+### 4. 웹 애플리케이션 접속
+
+- **Frontend**: http://localhost (포트 80)
+- **Backend API**: http://localhost:3000
+- **Database**: localhost:5432 (PostgreSQL)
+
+### 5. 서비스 상태 확인
 
 ```bash
-# 루트 디렉토리에서
-npm install
+# 서비스 상태 및 헬스체크
+npm run status
 
-# Frontend 의존성
-cd frontend && npm install
-npm install -g @quasar/cli
+# 전체 헬스체크
+npm run health
 
-# Backend 의존성  
-cd ../backend && npm install
+# 실시간 로그 보기
+npm run logs
 ```
-
-### 5. 개발 서버 실행
-
-```bash
-# 전체 서비스 실행 (Docker Compose)
-docker-compose up -dev
-
-# 또는 개별 실행
-npm run dev:backend  # Backend: http://localhost:3000
-npm run dev:frontend # Frontend: http://localhost:5000
-```
-
-### 6. 웹 애플리케이션 접속
-
-브라우저에서 `http://localhost:5000`으로 접속
 
 ## 📁 프로젝트 구조
 
 ```
 kospi-fg-index/
-├── docs/                    # 프로젝트 문서
-│   ├── TODO.md             # 할 일 목록
-│   ├── API_RESEARCH.md     # API 조사 결과
-│   └── TECH_STACK.md       # 기술 스택 문서
+├── docs/                    # 📚 프로젝트 문서
+│   ├── setup/              # 🚀 설정 가이드
+│   ├── architecture/       # 🏗️ 시스템 아키텍처
+│   ├── api/                # 🔌 API 문서
+│   ├── deployment/         # 🚀 배포 가이드
+│   ├── operations/         # 🔧 운영 관리
+│   └── archive/            # 📦 아카이브
+├── scripts/                # 🛠️ 관리 스크립트
+│   ├── fg-manager.sh       # 메인 프로젝트 관리도구
+│   ├── docker-utils.sh     # Docker 유틸리티
+│   ├── env-utils.sh        # 환경변수 관리
+│   ├── deploy.sh          # 배포 스크립트
+│   ├── basic-monitor.sh   # 모니터링
+│   ├── backup.sh          # 백업 스크립트
+│   └── setup-vm.sh        # VM 설정
 ├── frontend/               # Vue.js 프론트엔드
 │   ├── src/
 │   │   ├── components/     # Vue 컴포넌트
@@ -184,15 +184,40 @@ kospi-fg-index/
 │   └── public/             # 정적 파일
 ├── backend/                # Node.js 백엔드
 │   ├── src/
-│   │   ├── controllers/    # API 컨트롤러
+│   │   ├── routes/         # API 라우터
 │   │   ├── services/       # 비즈니스 로직
 │   │   ├── collectors/     # 데이터 수집기
-│   │   ├── schedulers/     # 작업 스케줄러
+│   │   ├── repositories/   # 데이터 액세스
 │   │   └── utils/          # 유틸리티
 │   └── prisma/             # 데이터베이스 스키마
-├── docker-compose.yml      # Docker 컨테이너 설정
-├── .github/workflows/      # CI/CD 파이프라인
-└── README.md              # 프로젝트 README
+├── docker-compose.yml      # 🐳 통합 Docker 설정
+├── .github/workflows/      # 🔄 CI/CD 파이프라인
+├── package.json            # 📦 프로젝트 관리 스크립트
+└── README.md              # 📖 프로젝트 README
+```
+
+### 🛠️ 새로운 스크립트 시스템
+
+이 프로젝트는 통합된 관리 스크립트를 제공합니다:
+
+```bash
+# 📋 주요 명령어
+npm run setup               # 프로젝트 초기 설정
+npm run start:dev          # 개발환경 시작
+npm run start:prod         # 프로덕션 시작
+npm run deploy:prod        # 프로덕션 배포
+npm run health             # 시스템 헬스체크
+npm run backup             # 전체 백업
+
+# 🐳 Docker 관리
+npm run docker:up          # 서비스 시작
+npm run docker:down        # 서비스 중지
+npm run docker:clean       # 리소스 정리
+
+# 🔧 환경 관리
+npm run env:setup          # 환경 설정
+npm run env:validate       # 환경 검증
+npm run env:switch:prod    # 프로덕션 환경 전환
 ```
 
 ## 📊 데이터 소스
@@ -314,25 +339,32 @@ npm run test:coverage
 ### Production 빌드
 
 ```bash
-# Frontend 빌드
-npm run build:frontend
+# 전체 빌드
+npm run build
 
-# Backend 빌드
-npm run build:backend
+# 환경별 빌드
+cd frontend && npm run build:prod      # 프로덕션 빌드
+cd backend && npm run build:prod       # 백엔드 빌드
 
 # Docker 이미지 빌드
 docker-compose build
 ```
 
-### Docker 배포
+### 배포 가이드
 
 ```bash
-# 프로덕션 환경 실행
-docker-compose -f docker-compose.prod.yml up -d
+# 환경별 배포
+npm run deploy:staging      # 스테이징 배포
+npm run deploy:prod        # 프로덕션 배포
 
-# 로그 확인
-docker-compose logs -f
+# 또는 직접 스크립트 실행
+ENVIRONMENT=production ./scripts/deploy.sh
+
+# 롤백 (문제 발생시)
+npm run rollback
 ```
+
+🔗 **상세 배포 가이드**: [docs/deployment/DEPLOYMENT.md](docs/deployment/DEPLOYMENT.md)
 
 ## 🤝 기여하기
 

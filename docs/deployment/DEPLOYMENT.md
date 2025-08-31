@@ -1,51 +1,42 @@
-# Production Deployment Guide - Rocky Linux
+# Production Deployment Guide - Simplified CI/CD
 
-Complete guide for deploying the Fear & Greed Index application to production using GitHub Actions, Docker, and Google Cloud VM with Rocky Linux.
+Streamlined deployment guide for the Fear & Greed Index application using GitHub Actions and Docker.
 
 ## Overview
 
-This deployment setup provides:
+This simplified deployment setup provides:
 - **Automated CI/CD** with GitHub Actions
-- **Zero-downtime deployments** with blue-green strategy
-- **SSL/TLS encryption** with automatic certificate renewal
-- **Comprehensive monitoring** and alerting
-- **Database backups** with retention policies
-- **Security hardening** and performance optimization
+- **Containerized deployment** with Docker Compose
+- **Health checks** and basic monitoring
+- **Automated backups** with simple retention
+- **GitHub Container Registry** for image storage
 
 ## Architecture
 
 ```
-Internet → CloudFlare/DNS → GCP VM → nginx (SSL) → Docker Containers
-                                    ├── Frontend (Vue.js)
-                                    ├── Backend (Node.js/Express)
-                                    ├── Database (PostgreSQL)
-                                    ├── Cache (Redis)
-                                    └── Scheduler (Data Collection)
+Internet → VM/Server → nginx (reverse proxy) → Docker Containers
+                       ├── Frontend (Vue.js)
+                       ├── Backend (Node.js/Express)
+                       ├── Database (PostgreSQL/MySQL)
+                       └── Cache (Redis)
 ```
 
 ## Prerequisites
 
-### 1. Google Cloud VM Setup
-- **Instance Type**: e2-standard-2 (2 vCPUs, 8GB RAM) minimum
-- **OS**: Rocky Linux 9 (recommended) or Rocky Linux 8
-- **Disk**: 50GB SSD minimum
+### 1. Server Setup
+- **Instance Type**: 2 vCPUs, 4GB RAM minimum
+- **OS**: Linux (Ubuntu/Rocky/CentOS)  
+- **Disk**: 20GB minimum
 - **Network**: Allow HTTP (80) and HTTPS (443) traffic
-- **Firewall**: Configure firewall rules for SSH, HTTP, HTTPS
+- **Docker**: Docker and Docker Compose installed
 
-#### Rocky Linux Specific Notes
-- **SELinux**: Enabled by default (recommended to keep enabled)
-- **Package Manager**: Uses `dnf` instead of `apt`
-- **Firewall**: Uses `firewalld` instead of `ufw`
-- **User Management**: Default user is typically `rocky` (we'll use `min` for this deployment)
-- **Security Updates**: Uses `dnf-automatic` for automatic updates
-
-### 2. Domain Configuration
-- Point `investand.voyagerss.com` to your VM's public IP
-- Ensure DNS propagation is complete before SSL setup
-
-### 3. GitHub Repository
+### 2. GitHub Repository Setup
 - Fork or clone the repository
 - Configure GitHub Actions secrets (see [Secrets Configuration](#secrets-configuration))
+
+### 3. Domain Configuration (Optional)
+- Point your domain to server's public IP
+- Configure SSL if using custom domain
 
 ## Initial VM Setup
 
@@ -108,16 +99,31 @@ Configure the following secrets in your GitHub repository (Settings → Secrets 
 ### Required Secrets (GitHub Actions)
 
 ```yaml
-# VM Access
-VM_HOST: "your-vm-public-ip"
-VM_USER: "min"
+# Server Access
+VM_HOST: "your-server-ip-or-domain"
+VM_USER: "your-username"
 VM_SSH_KEY: |
   -----BEGIN OPENSSH PRIVATE KEY-----
   [Your private key content]
   -----END OPENSSH PRIVATE KEY-----
 
-# Container Registry
-GITHUB_TOKEN: "ghp_your_github_token_here"
+# Application Environment
+DATABASE_URL: "postgresql://user:password@database:5432/dbname"
+DATABASE_NAME: "fg_index_prod"
+DATABASE_USER: "fg_user"
+DATABASE_PASSWORD: "secure_password"
+KIS_API_KEY: "your_korea_investment_api_key"
+KIS_API_SECRET: "your_korea_investment_api_secret"
+BOK_API_KEY: "your_bank_of_korea_api_key"
+DART_API_KEY: "your_dart_api_key"
+REDIS_URL: "redis://:password@redis:6379/0"
+REDIS_PASSWORD: "secure_redis_password"
+JWT_SECRET: "your_jwt_secret_min_32_chars"
+ADMIN_PASSWORD: "secure_admin_password"
+CERTBOT_EMAIL: "your-email@domain.com"
+
+# Optional
+SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
 ```
 
 ### Production Environment File (.env.production)
@@ -193,10 +199,12 @@ UPBIT_SECRET_KEY=your_upbit_secret_key
    git push origin main
    ```
 
-2. **Monitor deployment**:
-   - Check GitHub Actions tab in your repository
-   - Monitor Slack notifications (if configured)
-   - Verify health endpoints after deployment
+2. **GitHub Actions will automatically**:
+   - Run tests and linting
+   - Perform security scanning
+   - Build Docker images
+   - Deploy to production server
+   - Run health checks
 
 ### Manual Deployment
 
@@ -204,7 +212,7 @@ For emergency deployments or troubleshooting:
 
 ```bash
 cd /home/min/fg-index
-sudo -u min ./scripts/deploy.sh
+./scripts/deploy.sh
 ```
 
 #### Deployment Options
@@ -215,9 +223,6 @@ sudo -u min ./scripts/deploy.sh
 # Skip backup (faster)
 ./scripts/deploy.sh --skip-backup
 
-# Skip health checks (emergency)
-./scripts/deploy.sh --skip-health-check
-
 # Rollback to previous version
 ./scripts/deploy.sh --rollback
 ```
@@ -226,20 +231,19 @@ sudo -u min ./scripts/deploy.sh
 
 ### Health Check Endpoints
 
-- **Main Health**: `https://investand.voyagerss.com/health`
-- **API Health**: `https://investand.voyagerss.com/api/health`
-- **Metrics**: `https://investand.voyagerss.com/api/metrics` (admin auth required)
+- **Main Health**: `http://your-server/health`
+- **API Health**: `http://your-server/api/health`
 
-### Monitoring Script
+### Basic Monitoring
 
-The monitoring script runs every 5 minutes via cron:
+Use the basic monitoring script:
 
 ```bash
-# Manual monitoring check
-sudo -u min /home/min/fg-index/scripts/monitor.sh --check-all --alert
+# Quick health check
+./scripts/basic-monitor.sh --health-only
 
-# Generate system report
-sudo -u min /home/min/fg-index/scripts/monitor.sh --report
+# Full system check
+./scripts/basic-monitor.sh
 ```
 
 ### Log Management
@@ -258,17 +262,14 @@ grep -i error /home/min/fg-index/logs/**/*.log
 
 ### Database Backup
 
-Automated backups run daily at 2:00 AM:
+Manual backup:
 
 ```bash
-# Manual backup
-sudo -u min /home/min/fg-index/scripts/backup.sh
+# Create backup
+./scripts/backup.sh
 
-# Full backup with S3 upload
-sudo -u min /home/min/fg-index/scripts/backup.sh --type full --upload-s3
-
-# Incremental backup
-sudo -u min /home/min/fg-index/scripts/backup.sh --type incremental
+# Restore from backup  
+./scripts/backup.sh --restore
 ```
 
 ### SSL Certificate Management
