@@ -78,10 +78,10 @@ The setup script will:
 
 3. **Configure Environment**:
    ```bash
-   sudo -u min cp .env.production.template .env.production
-   sudo -u min vi .env.production
+   sudo -u min cp .env.example .env
+   sudo -u min vi .env
    ```
-   Fill in your actual API keys and credentials (see [Environment Configuration](#environment-configuration))
+   Fill in your actual API keys and credentials and set NODE_ENV=production (see [Environment Configuration](#environment-configuration))
 
 ### 3. Initial Deployment
 
@@ -126,9 +126,9 @@ CERTBOT_EMAIL: "your-email@domain.com"
 SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
 ```
 
-### Production Environment File (.env.production)
+### Production Environment File (.env)
 
-Create `.env.production` file on your server with the following configuration:
+Create `.env` file on your server with NODE_ENV=production and the following configuration:
 
 #### Required Variables
 ```env
@@ -298,10 +298,10 @@ tail -f /home/min/fg-index/logs/deploy.log
 
 # Check container status
 cd /home/min/fg-index
-docker-compose -f docker-compose.prod.yml ps
+docker-compose --profile production ps
 
 # Restart services
-sudo -u min docker-compose -f docker-compose.prod.yml restart
+sudo -u min docker-compose --profile production restart
 ```
 
 #### 2. SSL Certificate Issues
@@ -313,19 +313,25 @@ sudo certbot certificates
 sudo nginx -t
 
 # Restart nginx container
-docker restart fg-nginx-prod
+docker restart fg-nginx
 ```
 
 #### 3. Database Connection Issues
 ```bash
 # Check database container
-docker logs fg-database-prod
+docker logs fg-database
 
-# Test database connection
-docker exec fg-database-prod pg_isready -U fg_user -d fg_index_prod
+# Test database connection (PostgreSQL)
+docker exec fg-database pg_isready -U fg_user -d fg_index_prod
 
-# Access database console
-docker exec -it fg-database-prod psql -U fg_user -d fg_index_prod
+# Test database connection (MySQL)
+docker exec fg-database mysqladmin ping -h localhost -u fg_user -p
+
+# Access database console (PostgreSQL)
+docker exec -it fg-database psql -U fg_user -d fg_index_prod
+
+# Access database console (MySQL)
+docker exec -it fg-database mysql -u fg_user -p fg_index_prod
 ```
 
 #### 4. High Resource Usage
@@ -367,7 +373,7 @@ sudo setsebool -P container_manage_cgroup on
 ```bash
 # Stop all services
 cd /home/min/fg-index
-sudo -u min docker-compose -f docker-compose.prod.yml down
+sudo -u min docker-compose --profile production down
 
 # Restore from backup
 sudo -u min ./scripts/backup.sh --restore
@@ -381,9 +387,13 @@ sudo -u min ./scripts/deploy.sh
 # Find latest backup
 ls -la /home/min/fg-index/backups/backup_full_*.sql.gz
 
-# Restore database
+# Restore database (PostgreSQL)
 gunzip -c /home/min/fg-index/backups/backup_full_YYYYMMDD_HHMMSS.sql.gz | \
-  docker exec -i fg-database-prod psql -U fg_user -d fg_index_prod
+  docker exec -i fg-database psql -U fg_user -d fg_index_prod
+
+# Restore database (MySQL)
+gunzip -c /home/min/fg-index/backups/backup_full_YYYYMMDD_HHMMSS.sql.gz | \
+  docker exec -i fg-database mysql -u fg_user -p fg_index_prod
 ```
 
 #### 3. Rollback Deployment
@@ -430,7 +440,7 @@ SELECT query, mean_time, calls FROM pg_stat_statements ORDER BY mean_time DESC L
 ```
 
 ### Container Resource Limits
-Adjust in `docker-compose.prod.yml`:
+Adjust in `docker-compose.yml` under the deploy section:
 ```yaml
 deploy:
   resources:

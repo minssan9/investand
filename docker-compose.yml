@@ -149,7 +149,7 @@ services:
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
     ports:
-      - "${DATABASE_PORT:-3306}:${DATABASE_INTERNAL_PORT:-3306}"
+      - "${DATABASE_PORT:-3306}:3306"
     volumes:
       - database_data:/var/lib/mysql
       - database_data:/var/lib/postgresql/data
