@@ -13,6 +13,7 @@ LOG_FILE="$APP_DIR/logs/deploy.log"
 COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 BACKUP_DIR="$APP_DIR/backups"
 ENVIRONMENT=${ENVIRONMENT:-production}
+ENV_FILE="$APP_DIR/.env"
 
 # Colors for output
 RED='\033[0;31m'

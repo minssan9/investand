@@ -112,13 +112,16 @@ npm run setup
 
 #### 수동 설정
 ```bash
-# 1. 환경 변수 설정
+# 1. 환경 파일 생성
+cp .env.example .env
+
+# 2. 환경 변수 설정 (.env 파일 수정)
 npm run env:setup
 
-# 2. 의존성 설치
+# 3. 의존성 설치
 npm run install:all
 
-# 3. 환경 검증
+# 4. 환경 검증
 npm run env:validate
 ```
 

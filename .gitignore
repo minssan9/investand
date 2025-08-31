@@ -9,9 +9,7 @@ frontend/package-lock.json
 
 # Environment files (all .env, .env.*, and in subdirs)
 .env
-.env.*
 **/.env
-**/.env.*
 
 .DS_Store
 *.iml
@@ -40,5 +38,4 @@ dev-debug.log
 # tasks/ 
 .cursor/mcp.json
 .mcp.json
-.DS_Store
 .DS_Store

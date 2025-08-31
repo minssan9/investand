@@ -224,30 +224,48 @@ cmd_switch() {
     
     log "Switching to $env environment..."
     
-    # Create environment-specific .env file name
-    local env_file=".env"
-    if [ "$env" != "development" ]; then
-        env_file=".env.$env"
-    fi
-    
-    # Check if environment file exists
-    if [ ! -f "$env_file" ]; then
-        warn "Environment file $env_file not found"
-        if [ -f "backend/env.template" ]; then
-            log "Creating $env_file from template..."
-            cp backend/env.template "$env_file"
+    # Update NODE_ENV in single .env file
+    if [ ! -f ".env" ]; then
+        warn ".env file not found"
+        if [ -f ".env.example" ]; then
+            log "Creating .env from example..."
+            cp .env.example .env
         else
-            error "Cannot create environment file - template not found"
+            error "Cannot create .env file - .env.example not found"
             return 1
         fi
     fi
     
-    # Update environment variable
+    # Update NODE_ENV and ENVIRONMENT in .env file
+    if command -v sed >/dev/null 2>&1; then
+        # Update NODE_ENV
+        sed -i.bak "s/^NODE_ENV=.*/NODE_ENV=$env/" .env
+        # Update ENVIRONMENT
+        if grep -q "^ENVIRONMENT=" .env; then
+            sed -i.bak "s/^ENVIRONMENT=.*/ENVIRONMENT=$env/" .env
+        else
+            echo "ENVIRONMENT=$env" >> .env
+        fi
+        rm .env.bak 2>/dev/null || true
+        
+        log "✅ Updated .env file for $env environment"
+        
+        # Update database settings for production
+        if [ "$env" = "production" ]; then
+            warn "Don't forget to update production database credentials in .env"
+            info "Consider using PostgreSQL for production (DATABASE_IMAGE=postgres:15-alpine)"
+        fi
+    else
+        error "sed not available. Please manually update NODE_ENV=$env in .env file"
+        return 1
+    fi
+    
+    # Set environment variable for current session
     export ENVIRONMENT="$env"
-    export ENV_SUFFIX=$([ "$env" = "development" ] && echo "" || echo ".$env")
+    export NODE_ENV="$env"
     
     log "✅ Switched to $env environment"
-    info "Environment file: $env_file"
+    info "Environment file: .env (NODE_ENV=$env)"
     info "To persist this change, add 'export ENVIRONMENT=$env' to your shell profile"
 }
 
@@ -255,11 +273,16 @@ cmd_switch() {
 cmd_check() {
     log "Checking current environment status..."
     
-    local env=${ENVIRONMENT:-development}
-    local env_suffix=${ENV_SUFFIX:-}
+    # Check .env file for current environment
+    local env="development"
+    if [ -f ".env" ]; then
+        local node_env=$(grep "^NODE_ENV=" .env | cut -d'=' -f2 2>/dev/null || echo "development")
+        local environment_var=$(grep "^ENVIRONMENT=" .env | cut -d'=' -f2 2>/dev/null || echo "$node_env")
+        env=${environment_var:-$node_env}
+    fi
     
     echo "Current environment: $env"
-    echo "Environment file: .env$env_suffix"
+    echo "Environment file: .env"
     echo ""
     
     # Check which services are running
@@ -273,13 +296,22 @@ cmd_check() {
     # Check environment files
     echo ""
     info "Environment files:"
-    for file in .env .env.staging .env.production backend/.env frontend/.env; do
+    for file in .env .env.example backend/.env frontend/.env; do
         if [ -f "$file" ]; then
             echo "  ✅ $file"
         else
             echo "  ❌ $file (missing)"
         fi
     done
+    
+    # Show current environment settings
+    if [ -f ".env" ]; then
+        echo ""
+        info "Current .env settings:"
+        echo "  NODE_ENV: $(grep "^NODE_ENV=" .env | cut -d'=' -f2 2>/dev/null || echo "not set")"
+        echo "  DATABASE_IMAGE: $(grep "^DATABASE_IMAGE=" .env | cut -d'=' -f2 2>/dev/null || echo "mysql:8.0 (default)")"
+        echo "  PORT: $(grep "^PORT=" .env | cut -d'=' -f2 2>/dev/null || echo "3000 (default)")"
+    fi
 }
 
 # Backup environment files
@@ -289,8 +321,8 @@ cmd_backup() {
     
     log "Creating environment backup in $backup_dir..."
     
-    # Backup all .env files
-    for file in .env .env.staging .env.production backend/.env frontend/.env; do
+    # Backup environment files
+    for file in .env .env.example backend/.env frontend/.env; do
         if [ -f "$file" ]; then
             cp "$file" "$backup_dir/"
             log "Backed up $file"
