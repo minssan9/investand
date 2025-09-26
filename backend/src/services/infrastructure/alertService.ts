@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { PrismaClient } from '@prisma/client'
 import MonitoringService from './monitoringService'
 import DatabaseHealthService from './databaseHealthService'
-import BusinessMetricsService from './businessMetricsService'
+import { BusinessMetricsService } from '@/services/config/businessMetricsService'
 
 const prisma = new PrismaClient()
 

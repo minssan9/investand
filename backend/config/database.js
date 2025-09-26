@@ -112,10 +112,24 @@ class DatabaseManager {
   buildConnectionString(dbUrl) {
     const params = new URLSearchParams(dbUrl.search)
 
+    // Add MySQL-specific authentication parameters
+    if (dbUrl.protocol === 'mysql:') {
+      // Use mysql_native_password to avoid sha256_password issues
+      params.set('authPlugins', 'mysql_native_password')
+      // Add charset and timezone for MySQL
+      params.set('charset', 'utf8mb4')
+      params.set('timezone', 'Asia/Seoul')
+    }
+
     // Add SSL parameters for production
     if (DB_CONFIG.ssl.enabled) {
-      params.set('ssl', 'true')
-      params.set('sslmode', 'require')
+      if (dbUrl.protocol === 'mysql:') {
+        params.set('ssl', 'true')
+        params.set('sslmode', 'require')
+      } else {
+        params.set('ssl', 'true')
+        params.set('sslmode', 'require')
+      }
       
       if (process.env.DB_SSL_CA_PATH) {
         params.set('sslcert', process.env.DB_SSL_CERT_PATH)
@@ -127,10 +141,6 @@ class DatabaseManager {
     // Add connection pool parameters
     params.set('connection_limit', DB_CONFIG.pool.max.toString())
     params.set('pool_timeout', Math.floor(DB_CONFIG.pool.connectionTimeoutMillis / 1000).toString())
-    
-    // Add charset and timezone
-    params.set('charset', 'utf8mb4')
-    params.set('timezone', 'Asia/Seoul')
 
     // Rebuild URL
     dbUrl.search = params.toString()

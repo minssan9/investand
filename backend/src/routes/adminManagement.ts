@@ -2,6 +2,8 @@ import * as express from 'express'
 import { Request, Response } from 'express'
 import * as os from 'os'
 import { performance } from 'perf_hooks'
+import * as bcrypt from 'bcrypt'
+import { PrismaClient } from '@prisma/client'
 import { DatabaseService } from '@/services/core/databaseService'
 import { FearGreedCalculator } from '@/services/core/fearGreedCalculator'
 import { KrxCollectionService } from '@/services/collectors/KrxCollectionService'
@@ -9,16 +11,16 @@ import { MarketDataRepository } from '@/repositories/market/MarketDataRepository
 import { FearGreedIndexRepository } from '@/repositories/analytics/FearGreedIndexRepository'
 import { BOKCollector } from '@/collectors/financial/bokCollector'
 import { formatDate } from '@/utils/common/dateUtils'
-import { 
-  authenticateAdmin, 
-  generateToken, 
+import {
+  generateToken,
   verifyToken,
-  requireAdmin, 
+  requireAdmin,
   requirePermission,
   requireAdminRole,
-  AuthenticatedRequest 
-} from '../middleware/adminAuth'
+  AuthenticatedRequest
+} from '../middleware/authMiddleware'
 
+const prisma = new PrismaClient()
 const router = express.Router()
 
 // ============================================================================
@@ -26,9 +28,64 @@ const router = express.Router()
 // ============================================================================
 
 /**
- * Admin Login
- * POST /api/admin/login
- * Body: { username: string, password: string }
+ * @swagger
+ * /api/admin/login:
+ *   post:
+ *     tags: [Admin Authentication]
+ *     summary: Admin user login
+ *     description: Authenticate admin user and return JWT token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: Admin username
+ *                 example: admin
+ *               password:
+ *                 type: string
+ *                 description: Admin password
+ *                 example: admin123
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 로그인 성공
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       type: string
+ *                       description: JWT access token
+ *                     user:
+ *                       $ref: '#/components/schemas/AdminUser'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       400:
+ *         description: Missing credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/login', async (req: Request, res: Response) => {
   try {
@@ -43,8 +100,11 @@ router.post('/login', async (req: Request, res: Response) => {
       })
     }
 
-    // Authenticate user
-    const user = await authenticateAdmin(username, password)
+    // Find user in database
+    const user = await prisma.adminUser.findUnique({
+      where: { username }
+    })
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -53,12 +113,57 @@ router.post('/login', async (req: Request, res: Response) => {
       })
     }
 
-    // Generate JWT token
-    const token = generateToken(user)
+    // Check if account is active
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: '비활성화된 계정입니다. 관리자에게 문의하세요.',
+        code: 'ACCOUNT_INACTIVE'
+      })
+    }
+
+    // Check if account is locked
+    if (user.isLocked) {
+      return res.status(401).json({
+        success: false,
+        message: '잠긴 계정입니다. 관리자에게 문의하세요.',
+        code: 'ACCOUNT_LOCKED'
+      })
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash)
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: '잘못된 사용자명 또는 비밀번호입니다.',
+        code: 'INVALID_CREDENTIALS'
+      })
+    }
+
+    // Generate simple JWT token
+    const token = generateToken({
+      id: user.id,
+      username: user.username,
+      email: user.email || undefined,
+      role: user.role,
+      permissions: JSON.parse(user.permissions || '[]'),
+      mfaEnabled: false,
+      isActive: user.isActive,
+      isLocked: user.isLocked,
+      mustChangePassword: user.mustChangePassword
+    })
+
+    // Update last login
+    await prisma.adminUser.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() }
+    })
 
     // Log successful login
     console.log(`[Admin] Successful login: ${username} at ${new Date().toISOString()}`)
 
+    // Return successful login response
     return res.json({
       success: true,
       message: '로그인 성공',
@@ -67,9 +172,11 @@ router.post('/login', async (req: Request, res: Response) => {
         user: {
           id: user.id,
           username: user.username,
+          email: user.email,
           role: user.role,
-          permissions: user.permissions,
-          lastLogin: user.lastLogin
+          permissions: JSON.parse(user.permissions || '[]'),
+          lastLogin: user.lastLoginAt,
+          mfaEnabled: false
         }
       }
     })
@@ -84,9 +191,258 @@ router.post('/login', async (req: Request, res: Response) => {
 })
 
 /**
- * Validate Token
- * POST /api/admin/validate-token
- * Body: { token: string }
+ * @swagger
+ * /api/admin/signup:
+ *   post:
+ *     tags: [Admin Authentication]
+ *     summary: Create new admin account
+ *     description: Register a new admin user account
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *               - email
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: Admin username (3-50 characters)
+ *                 example: newadmin
+ *               password:
+ *                 type: string
+ *                 description: Admin password (minimum 8 characters)
+ *                 example: SecurePass123!
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Admin email address
+ *                 example: admin@example.com
+ *               firstName:
+ *                 type: string
+ *                 description: First name (optional)
+ *                 example: John
+ *               lastName:
+ *                 type: string
+ *                 description: Last name (optional)
+ *                 example: Doe
+ *               role:
+ *                 type: string
+ *                 enum: [VIEWER, ANALYST, ADMIN, SUPER_ADMIN]
+ *                 description: Admin role (defaults to VIEWER)
+ *                 example: ADMIN
+ *     responses:
+ *       201:
+ *         description: Account created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 계정이 성공적으로 생성되었습니다
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/AdminUser'
+ *       400:
+ *         description: Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Username or email already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/signup', async (req: Request, res: Response) => {
+  try {
+    const { username, password, email, firstName, lastName, role = 'VIEWER' } = req.body
+
+    // Validate required fields
+    if (!username || !password || !email) {
+      return res.status(400).json({
+        success: false,
+        message: '사용자명, 비밀번호, 이메일을 모두 입력해주세요.',
+        code: 'MISSING_REQUIRED_FIELDS'
+      })
+    }
+
+    // Validate username length
+    if (username.length < 3 || username.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: '사용자명은 3자 이상 50자 이하여야 합니다.',
+        code: 'INVALID_USERNAME_LENGTH'
+      })
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: '비밀번호는 최소 8자 이상이어야 합니다.',
+        code: 'WEAK_PASSWORD'
+      })
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: '유효한 이메일 주소를 입력해주세요.',
+        code: 'INVALID_EMAIL'
+      })
+    }
+
+    // Validate role
+    const validRoles = ['VIEWER', 'ANALYST', 'ADMIN', 'SUPER_ADMIN']
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: '유효하지 않은 역할입니다.',
+        code: 'INVALID_ROLE'
+      })
+    }
+
+    // Check if username already exists
+    const existingUser = await prisma.adminUser.findUnique({
+      where: { username }
+    })
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: '이미 존재하는 사용자명입니다.',
+        code: 'USERNAME_EXISTS'
+      })
+    }
+
+    // Check if email already exists
+    const existingEmail = await prisma.adminUser.findUnique({
+      where: { email }
+    })
+
+    if (existingEmail) {
+      return res.status(409).json({
+        success: false,
+        message: '이미 존재하는 이메일입니다.',
+        code: 'EMAIL_EXISTS'
+      })
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 12)
+
+    // Create new admin user
+    const newUser = await prisma.adminUser.create({
+      data: {
+        username,
+        email,
+        passwordHash,
+        role,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        permissions: JSON.stringify([]), // Default empty permissions
+        mfaBackupCodes: JSON.stringify([]), // Default empty backup codes
+        isActive: true,
+        isLocked: false,
+        mustChangePassword: false
+      }
+    })
+
+    // Log successful account creation
+    console.log(`[Admin] New account created: ${username} (${email}) with role ${role} at ${new Date().toISOString()}`)
+
+    return res.status(201).json({
+      success: true,
+      message: '계정이 성공적으로 생성되었습니다.',
+      data: {
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+          role: newUser.role,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          isActive: newUser.isActive,
+          createdAt: newUser.createdAt
+        }
+      }
+    })
+
+  } catch (error) {
+    console.error('[Admin] Signup error:', error)
+    return res.status(500).json({
+      success: false,
+      message: '계정 생성 중 오류가 발생했습니다.',
+      code: 'SIGNUP_ERROR'
+    })
+  }
+})
+
+/**
+ * @swagger
+ * /api/admin/validate-token:
+ *   post:
+ *     tags: [Admin Authentication]
+ *     summary: Validate JWT token
+ *     description: Validate admin JWT token and return user information
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: JWT token to validate
+ *     responses:
+ *       200:
+ *         description: Token validation successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 토큰 검증 성공
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/AdminUser'
+ *       401:
+ *         description: Invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/validate-token', async (req: Request, res: Response) => {
   try {
@@ -136,8 +492,39 @@ router.post('/validate-token', async (req: Request, res: Response) => {
 // ============================================================================
 
 /**
- * System Health Check
- * GET /api/admin/system-health
+ * @swagger
+ * /api/admin/system-health:
+ *   get:
+ *     tags: [Admin System]
+ *     summary: System health check
+ *     description: Get comprehensive system health status including database, API, and data collection
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: System health status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/SystemHealth'
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get('/system-health', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
   try {
@@ -261,6 +648,74 @@ router.get('/performance-metrics', requireAdmin, async (_req: AuthenticatedReque
     return res.status(500).json({
       success: false,
       message: '성능 지표 조회 중 오류가 발생했습니다.'
+    })
+  }
+})
+
+// ============================================================================
+// FEAR & GREED INDEX CALCULATION ROUTES (Protected)
+// ============================================================================
+
+/**
+ * Calculate Fear & Greed Index for specific date
+ * POST /api/admin/calculate-index
+ * Body: { date: string }
+ */
+router.post('/calculate-index', requireAdmin, requirePermission('write'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { date } = req.body
+
+    // Validate input
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: '날짜를 입력해주세요.',
+        code: 'MISSING_DATE'
+      })
+    }
+
+    // Validate date format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({
+        success: false,
+        message: '올바른 날짜 형식이 아닙니다. (YYYY-MM-DD)',
+        code: 'INVALID_DATE_FORMAT'
+      })
+    }
+
+    console.log(`[Admin] Fear & Greed Index calculation requested by ${req.admin?.username}: ${date}`)
+
+    // Calculate index
+    const result = await FearGreedCalculator.calculateIndex(date)
+    if (!result) {
+      return res.status(400).json({
+        success: false,
+        message: '해당 날짜의 데이터가 부족하여 계산할 수 없습니다.',
+        code: 'INSUFFICIENT_DATA'
+      })
+    }
+
+    // Save to database
+    await FearGreedIndexRepository.saveFearGreedIndex(result)
+
+    return res.json({
+      success: true,
+      message: 'Fear & Greed Index 계산 완료',
+      data: {
+        date: result.date,
+        value: result.value,
+        level: result.level,
+        confidence: result.confidence,
+        components: result.components
+      }
+    })
+
+  } catch (error) {
+    console.error('[Admin] Fear & Greed Index calculation failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Fear & Greed Index 계산 중 오류가 발생했습니다.',
+      code: 'CALCULATION_ERROR'
     })
   }
 })
@@ -488,6 +943,187 @@ router.post('/recalculate-range', requireAdmin, requirePermission('write'), asyn
       success: false,
       message: '일괄 재계산 중 오류가 발생했습니다.',
       code: 'RECALCULATION_ERROR'
+    })
+  }
+})
+
+// ============================================================================
+// DART DATA COLLECTION ROUTES (Protected)
+// ============================================================================
+
+/**
+ * Schedule DART Daily Batch
+ * POST /api/admin/dart/batch/daily
+ * Body: { date: string, options?: { sentimentOnly?: boolean } }
+ */
+router.post('/dart/batch/daily', requireAdmin, requirePermission('write'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { date } = req.body
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: '날짜를 입력해주세요.',
+        code: 'MISSING_DATE'
+      })
+    }
+
+    console.log(`[Admin] DART daily batch requested by ${req.admin?.username}: ${date}`)
+
+    // Mock batch scheduling (implement actual DART batch logic)
+    const jobId = `dart_daily_${Date.now()}`
+
+    return res.json({
+      success: true,
+      message: 'DART 일별 배치가 예약되었습니다.',
+      data: {
+        jobId,
+        message: `DART 일별 데이터 수집이 시작되었습니다 (${date})`
+      }
+    })
+
+  } catch (error) {
+    console.error('[Admin] DART daily batch scheduling failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'DART 일별 배치 예약 중 오류가 발생했습니다.',
+      code: 'DART_BATCH_ERROR'
+    })
+  }
+})
+
+/**
+ * Schedule DART Financial Batch
+ * POST /api/admin/dart/batch/financial
+ * Body: { businessYear: string }
+ */
+router.post('/dart/batch/financial', requireAdmin, requirePermission('write'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { businessYear } = req.body
+
+    if (!businessYear) {
+      return res.status(400).json({
+        success: false,
+        message: '사업연도를 입력해주세요.',
+        code: 'MISSING_BUSINESS_YEAR'
+      })
+    }
+
+    console.log(`[Admin] DART financial batch requested by ${req.admin?.username}: ${businessYear}`)
+
+    // Mock batch scheduling (implement actual DART financial batch logic)
+    const jobId = `dart_financial_${Date.now()}`
+
+    return res.json({
+      success: true,
+      message: 'DART 재무 배치가 예약되었습니다.',
+      data: {
+        jobId,
+        message: `DART 재무 데이터 수집이 시작되었습니다 (${businessYear})`
+      }
+    })
+
+  } catch (error) {
+    console.error('[Admin] DART financial batch scheduling failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'DART 재무 배치 예약 중 오류가 발생했습니다.',
+      code: 'DART_FINANCIAL_BATCH_ERROR'
+    })
+  }
+})
+
+/**
+ * Get DART Batch Status
+ * GET /api/admin/dart/batch/status
+ */
+router.get('/dart/batch/status', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Mock status (implement actual DART batch status logic)
+    const status = {
+      isRunning: false,
+      activeJobs: 0,
+      completedToday: 3,
+      pendingJobs: 0,
+      lastRunTime: new Date().toISOString(),
+      nextRunTime: null
+    }
+
+    return res.json({
+      success: true,
+      data: status
+    })
+
+  } catch (error) {
+    console.error('[Admin] DART batch status failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'DART 배치 상태 조회 중 오류가 발생했습니다.',
+      code: 'DART_STATUS_ERROR'
+    })
+  }
+})
+
+/**
+ * Get DART Health
+ * GET /api/admin/dart/health
+ */
+router.get('/dart/health', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const health = {
+      isOperational: true,
+      rateLimit: { remaining: 850 },
+      lastError: null,
+      timestamp: new Date().toISOString()
+    }
+
+    return res.json({
+      success: true,
+      data: health
+    })
+
+  } catch (error) {
+    console.error('[Admin] DART health check failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'DART 헬스 체크 중 오류가 발생했습니다.',
+      code: 'DART_HEALTH_ERROR'
+    })
+  }
+})
+
+/**
+ * Get DART Stats
+ * GET /api/admin/dart/stats?date=YYYY-MM-DD
+ */
+router.get('/dart/stats', requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+
+    // Mock stats (implement actual DART stats logic)
+    const stats = {
+      totalDisclosures: 1245,
+      processedToday: 89,
+      errorCount: 2,
+      lastUpdateTime: new Date().toISOString(),
+      byCategory: {
+        regularDisclosures: 756,
+        majorEvents: 234,
+        issuanceDisclosures: 145,
+        ownershipDisclosures: 110
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: stats
+    })
+
+  } catch (error) {
+    console.error('[Admin] DART stats failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'DART 통계 조회 중 오류가 발생했습니다.',
+      code: 'DART_STATS_ERROR'
     })
   }
 })

@@ -107,12 +107,59 @@
                 outlined
               />
               <q-checkbox v-model="dailyCollection.options.sentimentOnly" label="감정 관련 공시만 수집" />
-              <q-btn 
-                label="배치 예약" 
+              <q-btn
+                label="배치 예약"
                 type="submit"
                 color="primary"
                 :loading="loadingDaily"
                 class="full-width"
+              />
+            </q-form>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <!-- Manual DART Batch Collection -->
+      <div class="col-12 col-md-6">
+        <q-card class="q-mb-md">
+          <q-card-section>
+            <div class="text-h6">수동 DART 배치 수집</div>
+            <div class="text-caption text-grey-7">즉시 실행 및 데이터베이스 저장</div>
+          </q-card-section>
+          <q-card-section>
+            <q-form @submit="runManualBatchCollection" class="q-gutter-md">
+              <q-input
+                v-model="manualBatch.date"
+                label="수집 날짜"
+                type="date"
+                :rules="[val => !!val || '날짜를 선택해주세요']"
+                outlined
+              />
+              <q-input
+                v-model.number="manualBatch.maxPages"
+                label="최대 페이지 수"
+                type="number"
+                min="1"
+                max="100"
+                hint="1-100 페이지 (기본값: 50)"
+                outlined
+              />
+              <q-input
+                v-model.number="manualBatch.pageSize"
+                label="페이지당 레코드 수"
+                type="number"
+                min="1"
+                max="100"
+                hint="1-100 레코드 (기본값: 100)"
+                outlined
+              />
+              <q-btn
+                label="즉시 수집 실행"
+                type="submit"
+                color="secondary"
+                :loading="loadingManualBatch"
+                class="full-width"
+                icon="play_arrow"
               />
             </q-form>
           </q-card-section>
@@ -293,6 +340,12 @@ const dailyCollection = ref({
   }
 })
 
+const manualBatch = ref({
+  date: new Date().toISOString().split('T')[0],
+  maxPages: 50,
+  pageSize: 100
+})
+
 const financialCollection = ref({
   businessYear: new Date().getFullYear().toString()
 })
@@ -302,6 +355,7 @@ const loadingStatus = ref(false)
 const loadingBatchStatus = ref(false)
 const loadingStats = ref(false)
 const loadingDaily = ref(false)
+const loadingManualBatch = ref(false)
 const loadingFinancial = ref(false)
 const testingDisclosures = ref(false)
 const testingKospi200 = ref(false)
@@ -373,6 +427,27 @@ const scheduleDailyCollection = async () => {
     showError('오류', '일별 공시 수집 예약에 실패했습니다.')
   } finally {
     loadingDaily.value = false
+  }
+}
+
+const runManualBatchCollection = async () => {
+  loadingManualBatch.value = true
+  try {
+    const result = await dartApi.runManualBatch(
+      manualBatch.value.date || new Date().toISOString().split('T')[0],
+      manualBatch.value.maxPages,
+      manualBatch.value.pageSize
+    )
+    showSuccess(
+      '수집 완료',
+      `총 ${result.totalDisclosures}건 수집, ${result.savedDisclosures}건 저장됨`
+    )
+    // Refresh stats after successful collection
+    await loadDartStats()
+  } catch (error) {
+    showError('오류', '수동 DART 배치 수집에 실패했습니다.')
+  } finally {
+    loadingManualBatch.value = false
   }
 }
 

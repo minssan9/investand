@@ -26,6 +26,42 @@ const sampleData = {
   ]
 };
 
+/**
+ * @swagger
+ * /api/fear-greed/current:
+ *   get:
+ *     tags: [Fear & Greed Index]
+ *     summary: Get current Fear & Greed Index
+ *     description: Retrieve the latest Fear & Greed Index value with component breakdown
+ *     responses:
+ *       200:
+ *         description: Current Fear & Greed Index retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/FearGreedIndex'
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       404:
+ *         description: No Fear & Greed Index data available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // 현재 Fear & Greed Index 조회 (실제 데이터)
 router.get('/current', async (req: Request, res: Response) => {
   try {

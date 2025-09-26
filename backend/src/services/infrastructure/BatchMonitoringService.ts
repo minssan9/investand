@@ -288,6 +288,7 @@ export class BatchMonitoringService {
       
       checks.forEach((check, index) => {
         const componentName = componentNames[index]
+        if (!componentName) return // Skip if component name is undefined
         
         if (check.status === 'fulfilled') {
           health.components[componentName] = check.value

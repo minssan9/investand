@@ -1,4 +1,4 @@
-import { logger } from './logger'
+import { logger } from '@/utils/common/logger'
 
 export interface CacheEntry<T> {
   data: T

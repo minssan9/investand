@@ -35,6 +35,188 @@ let currentBatchSession: BatchSession | null = null
 let batchHistory: BatchSession[] = []
 
 /**
+ * 배치 세션 실행
+ */
+async function executeBatchSession(sessionType: string, priority: 'high' | 'medium' | 'low'): Promise<void> {
+  // 이미 배치 세션이 실행 중인 경우 대기
+  if (currentBatchSession && currentBatchSession.isActive) {
+    logger.warn(`[BatchSession] ${sessionType} 세션 요청이 있으나 현재 ${currentBatchSession.type} 세션이 실행 중입니다.`)
+    return
+  }
+
+  const sessionId = `${sessionType}_${Date.now()}`
+  const session: BatchSession = {
+    id: sessionId,
+    type: sessionType,
+    startTime: new Date(),
+    maxDuration: 8 * 60 * 60 * 1000, // 8시간
+    isActive: true,
+    completedTasks: [],
+    failedTasks: []
+  }
+
+  currentBatchSession = session
+  logger.info(`[BatchSession] ${sessionType} 배치 세션 시작: ${sessionId}`)
+
+  try {
+    // 배치 모니터링 래핑으로 실행
+    await BatchMonitoringService.monitorBatchExecution(`batch_session_${sessionType}`, async () => {
+      await performBatchDataCollection(session, priority)
+    })
+
+    session.isActive = false
+    session.completedTasks.push('batch_completed')
+    logger.info(`[BatchSession] ${sessionType} 배치 세션 완료: ${sessionId}`)
+    
+  } catch (error) {
+    session.isActive = false
+    session.failedTasks.push(`batch_failed: ${(error as Error).message}`)
+    logger.error(`[BatchSession] ${sessionType} 배치 세션 실패: ${sessionId}`, error)
+    
+    // 에러 복구 시스템에 알림
+    await ErrorRecoverySystem.handleBatchFailure(sessionId, error as Error)
+    throw error
+    
+  } finally {
+    // 세션 히스토리에 추가
+    batchHistory.push(session)
+    
+    // 히스토리는 최대 50개만 보관
+    if (batchHistory.length > 50) {
+      batchHistory.shift()
+    }
+    
+    currentBatchSession = null
+  }
+}
+
+/**
+ * 배치 데이터 수집 실행
+ */
+async function performBatchDataCollection(session: BatchSession, priority: 'high' | 'medium' | 'low'): Promise<void> {
+  const tasks = getBatchTasks(session.type, priority)
+  logger.info(`[BatchSession] ${session.type} 세션에서 ${tasks.length}개 작업 실행`)
+
+  for (const task of tasks) {
+    try {
+      logger.info(`[BatchSession] 작업 시작: ${task.name}`)
+      await task.execute()
+      session.completedTasks.push(task.name)
+      logger.info(`[BatchSession] 작업 완료: ${task.name}`)
+      
+      // 작업 간 간격 (API 제한 고려)
+      if (task.delay) {
+        await new Promise(resolve => setTimeout(resolve, task.delay))
+      }
+      
+    } catch (error) {
+      session.failedTasks.push(`${task.name}: ${(error as Error).message}`)
+      logger.error(`[BatchSession] 작업 실패: ${task.name}`, error)
+      
+      // 중요한 작업 실패 시 세션 중단 여부 결정
+      if (task.critical && priority === 'high') {
+        throw error
+      }
+    }
+  }
+}
+
+/**
+ * 배치 세션별 작업 목록 가져오기
+ */
+function getBatchTasks(sessionType: string, priority: 'high' | 'medium' | 'low'): Array<{
+  name: string
+  execute: () => Promise<void>
+  critical: boolean
+  delay?: number
+}> {
+  const baseDelay = priority === 'high' ? 1000 : priority === 'medium' ? 2000 : 3000
+
+  switch (sessionType) {
+    case 'morning':
+      return [
+        {
+          name: 'collect_krx_data',
+          execute: () => collectKRXData(),
+          critical: true,
+          delay: baseDelay
+        },
+        {
+          name: 'collect_bok_data',
+          execute: () => collectBOKData(),
+          critical: true,
+          delay: baseDelay
+        },
+        {
+          name: 'collect_dart_data',
+          execute: () => collectDARTData(),
+          critical: false,
+          delay: baseDelay
+        },
+        {
+          name: 'calculate_fear_greed_index',
+          execute: () => calculateAndSaveFearGreedIndex(),
+          critical: true,
+          delay: baseDelay
+        }
+      ]
+
+    case 'afternoon':
+      return [
+        {
+          name: 'collect_krx_intraday',
+          execute: () => collectKRXData(),
+          critical: true,
+          delay: baseDelay
+        },
+        {
+          name: 'collect_dart_intraday',
+          execute: () => collectDARTData(),
+          critical: false,
+          delay: baseDelay
+        },
+        {
+          name: 'update_fear_greed_index',
+          execute: () => calculateAndSaveFearGreedIndex(),
+          critical: false,
+          delay: baseDelay
+        }
+      ]
+
+    case 'evening':
+      return [
+        {
+          name: 'collect_krx_eod',
+          execute: () => collectKRXData(),
+          critical: true,
+          delay: baseDelay
+        },
+        {
+          name: 'collect_bok_eod',
+          execute: () => collectBOKData(),
+          critical: false,
+          delay: baseDelay
+        },
+        {
+          name: 'finalize_fear_greed_index',
+          execute: () => calculateAndSaveFearGreedIndex(),
+          critical: true,
+          delay: baseDelay
+        },
+        {
+          name: 'system_maintenance',
+          execute: () => performMaintenance(),
+          critical: false,
+          delay: baseDelay
+        }
+      ]
+
+    default:
+      return []
+  }
+}
+
+/**
  * 8시간 간격 데이터 수집 스케줄러 시작
  */
 export function startDataCollectionScheduler(): void {
@@ -487,19 +669,67 @@ export async function collectHistoricalData(startDate: string, endDate: string):
 }
 
 /**
+ * 배치 세션 상태 조회
+ */
+export function getBatchSessionStatus(): {
+  currentSession: BatchSession | null
+  sessionHistory: BatchSession[]
+  totalSessions: number
+  activeSessions: number
+} {
+  const activeSessions = currentBatchSession && currentBatchSession.isActive ? 1 : 0
+  
+  return {
+    currentSession: currentBatchSession,
+    sessionHistory: batchHistory.slice(-10), // 최근 10개만 반환
+    totalSessions: batchHistory.length,
+    activeSessions
+  }
+}
+
+/**
+ * 배치 세션 수동 실행 (테스트/관리용)
+ */
+export async function executeManualBatchSession(
+  sessionType: 'morning' | 'afternoon' | 'evening',
+  priority: 'high' | 'medium' | 'low' = 'medium'
+): Promise<void> {
+  logger.info(`[Manual] ${sessionType} 배치 세션 수동 실행 시작`)
+  
+  try {
+    await executeBatchSession(sessionType, priority)
+    logger.info(`[Manual] ${sessionType} 배치 세션 수동 실행 완료`)
+  } catch (error) {
+    logger.error(`[Manual] ${sessionType} 배치 세션 수동 실행 실패:`, error)
+    throw error
+  }
+}
+
+/**
  * 스케줄러 상태 조회
  */
 export function getSchedulerStatus(): {
   isRunning: boolean
   jobCount: number
   nextRuns: string[]
+  batchSessions: {
+    currentSession: BatchSession | null
+    totalSessions: number
+    activeSessions: number
+  }
 } {
   const nextRuns = scheduledJobs.map(() => 'Scheduled')
+  const batchStatus = getBatchSessionStatus()
 
   return {
     isRunning: isSchedulerRunning,
     jobCount: scheduledJobs.length,
-    nextRuns
+    nextRuns,
+    batchSessions: {
+      currentSession: batchStatus.currentSession,
+      totalSessions: batchStatus.totalSessions,
+      activeSessions: batchStatus.activeSessions
+    }
   }
 }
 

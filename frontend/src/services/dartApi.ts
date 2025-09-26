@@ -215,6 +215,29 @@ export const dartApi = {
     }
   },
 
+  // 수동 DART 배치 수집 (즉시 실행)
+  async runManualBatch(date: string, maxPages: number = 50, pageSize: number = 100): Promise<{
+    date: string
+    totalDisclosures: number
+    savedDisclosures: number
+    summary: {
+      maxPages: number
+      pageSize: number
+      timestamp: string
+    }
+  }> {
+    try {
+      const response = await api.post<{ success: boolean; message: string; data: any }>(
+        '/dart/batch/daily',
+        { date, maxPages, pageSize }
+      )
+      return response.data.data
+    } catch (error) {
+      console.error('DART manual batch failed:', error)
+      throw new Error('수동 DART 배치 수집에 실패했습니다.')
+    }
+  },
+
   // 재무 데이터 배치 수집 예약
   async scheduleFinancialBatch(businessYear: string): Promise<DartBatchResult> {
     try {

@@ -39,11 +39,19 @@
     "env:switch:dev": "./scripts/env-utils.sh switch dev",
     "env:switch:staging": "./scripts/env-utils.sh switch staging",
     "env:switch:prod": "./scripts/env-utils.sh switch prod",
+    "env:create": "cp env.sample .env && echo 'Created .env from env.sample. Please edit .env with your actual values.'",
+    "env:check": "test -f .env && echo '✅ Root .env file exists' || echo '❌ Root .env file missing. Run: npm run env:create'",
     "docker:up": "./scripts/docker-utils.sh up",
     "docker:down": "./scripts/docker-utils.sh down",
     "docker:clean": "./scripts/docker-utils.sh clean",
     "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install && cd ..",
-    "update:all": "npm update && cd backend && npm update && cd ../frontend && npm update && cd .."
+    "update:all": "npm update && cd backend && npm update && cd ../frontend && npm update && cd ..",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "test:backend": "cd backend && npm run test",
+    "test:frontend": "cd frontend && npm run test"
   },
   "keywords": [
     "kospi",

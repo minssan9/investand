@@ -2,8 +2,8 @@ import express from 'express'
 import { DartCollectionService } from '@/services/collectors/DartCollectionService'
 import { DartApiClient } from '@/clients/dart/DartApiClient'
 import { DartBatchService } from '@/services/core/dartBatchService'
-import adminAuth from '../middleware/adminAuth'
-import { rateLimiter } from '../middleware/rateLimiter'
+import adminAuth from '../middleware/authMiddleware'
+import { rateLimiter } from '../middleware/rateLimitMiddleware'
 import { logger } from '@/utils/common/logger'
 
 const router = express.Router()
@@ -27,7 +27,7 @@ router.use('/disclosures', (req, res, next) => {
  * GET /api/dart/disclosures
  * 공시 데이터 조회
  */
-router.get('/disclosures', async (req, res) => {
+router.get('/disclosures', async (req, res): Promise<void> => {
   try {
     const {
       startDate,
@@ -109,7 +109,7 @@ router.get('/disclosures', async (req, res) => {
  * GET /api/dart/companies
  * 기업 정보 조회
  */
-router.get('/companies', async (req, res) => {
+router.get('/companies', async (req, res): Promise<void> => {
   try {
     const { corpCode } = req.query
 
@@ -138,7 +138,7 @@ router.get('/companies', async (req, res) => {
  * GET /api/dart/financial
  * 재무 정보 조회
  */
-router.get('/financial', async (req, res) => {
+router.get('/financial', async (req, res): Promise<void> => {
   try {
     const { corpCode, businessYear, reportCode = '11011', fsDiv = 'OFS' } = req.query
 
@@ -204,7 +204,7 @@ router.get('/kospi200', async (req, res) => {
  * POST /api/dart/batch/daily
  * 일별 공시 데이터 배치 수집 예약 (관리자 전용)
  */
-router.post('/batch/daily', adminAuth, async (req, res) => {
+router.post('/batch/daily', adminAuth, async (req, res): Promise<void> => {
   try {
     const { date, options } = req.body
 
@@ -240,7 +240,7 @@ router.post('/batch/daily', adminAuth, async (req, res) => {
  * POST /api/dart/batch/financial
  * 재무 데이터 배치 수집 예약 (관리자 전용)
  */
-router.post('/batch/financial', adminAuth, async (req, res) => {
+router.post('/batch/financial', adminAuth, async (req, res): Promise<void> => {
   try {
     const { businessYear } = req.body
 
@@ -276,7 +276,7 @@ router.post('/batch/financial', adminAuth, async (req, res) => {
  * GET /api/dart/batch/status
  * 배치 서비스 상태 조회 (관리자 전용)
  */
-router.get('/batch/status', adminAuth, async (req, res) => {
+router.get('/batch/status', adminAuth, async (req, res): Promise<void> => {
   try {
     const status = await DartBatchService.getStatus()
 
@@ -361,7 +361,7 @@ router.get('/stats', async (req, res) => {
  * POST /api/dart/test
  * DART 수집기 테스트 (개발/테스트 환경 전용)
  */
-router.post('/test', async (req, res) => {
+router.post('/test', async (req, res): Promise<void> => {
   // 프로덕션 환경에서는 접근 차단
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({

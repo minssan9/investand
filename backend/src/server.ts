@@ -5,20 +5,23 @@ import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from '@/config/swagger';
 
 // 환경변수 로드
 dotenv.config();
 
 // 라우터 import
-import apiRoutes from '@/routes/api';
-import fearGreedRoutes from '@/routes/fearGreed';
-import dataRoutes from '@/routes/data';
-import adminRoutes from '@/routes/admin';
+import apiRoutes from '@/routes/fearGreedApi';
+import fearGreedRoutes from '@/routes/fearGreedPublic';
+import dataRoutes from '@/routes/marketData';
+import adminRoutes from '@/routes/adminManagement';
+import dartRoutes from '@/routes/dartApiSimple';
 
 // 미들웨어 import
-import { errorHandler } from '@/middleware/errorHandler';
-import { rateLimiter } from '@/middleware/rateLimiter';
-import { requestLogger } from '@/middleware/logger';
+import { errorHandler } from '@/middleware/errorMiddleware';
+import { rateLimiter } from '@/middleware/rateLimitMiddleware';
+import { requestLogger } from '@/middleware/loggingMiddleware';
 
 // 유틸리티 import
 import { logger } from '@/utils/common/logger';
@@ -27,21 +30,30 @@ import { startDataCollectionScheduler } from '@/services/infrastructure/schedule
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 보안 미들웨어
+// 보안 미들웨어 (with CSP modifications for Swagger)
 if (process.env.HELMET_ENABLED === 'true') {
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        connectSrc: ["'self'", "https://unpkg.com"],
+        imgSrc: ["'self'", "data:", "https://unpkg.com"],
+        fontSrc: ["'self'", "data:", "https://unpkg.com"]
+      }
+    }
+  }));
 }
 
 // CORS 설정
-if (process.env.CORS_ENABLED === 'true') {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:8082'];
-  app.use(cors({
-    origin: allowedOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  }));
-}
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:8082', 'http://localhost:8083', 'http://localhost:3000'];
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-mfa-token', 'x-refresh-token', 'x-mfa-verified']
+}));
 
 // 기본 미들웨어
 app.use(compression());
@@ -71,23 +83,74 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Swagger Documentation
+app.get('/api/docs', (req: any, res: any) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>KOSPI FG Index API Documentation</title>
+        <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@3.52.5/swagger-ui.css" />
+        <style>
+          .swagger-ui .topbar { display: none; }
+        </style>
+      </head>
+      <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@3.52.5/swagger-ui-bundle.js"></script>
+        <script>
+          SwaggerUIBundle({
+            url: '/api/docs.json',
+            dom_id: '#swagger-ui',
+            presets: [
+              SwaggerUIBundle.presets.apis,
+              SwaggerUIBundle.presets.standalone
+            ],
+            plugins: [
+              SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            persistAuthorization: true,
+            tryItOutEnabled: true,
+            filter: true,
+            displayRequestDuration: true
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Swagger JSON endpoint
+app.get('/api/docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
 // API 라우트
 app.use('/api', apiRoutes);
 app.use('/api/fear-greed', fearGreedRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/dart', dartRoutes);
 
 // 기본 라우트
 app.get('/', (req, res) => {
   res.json({
     message: 'KOSPI Fear & Greed Index API Server',
     version: '1.0.0',
-    documentation: '/api/docs',
+    documentation: {
+      swagger: '/api/docs',
+      json: '/api/docs.json'
+    },
     endpoints: {
       fearGreedIndex: '/api/fear-greed',
       marketData: '/api/data',
+      adminPanel: '/api/admin',
+      dartData: '/api/dart',
       health: '/health'
-    }
+    },
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString()
   });
 });
 

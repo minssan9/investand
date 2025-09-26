@@ -1,5 +1,5 @@
-import { DatabaseService } from './databaseService'
-import { logger } from '../utils/logger'
+import { DatabaseService } from '@/services/core/databaseService'
+import { logger } from '@/utils/common/logger'
 import crypto from 'crypto'
 
 /**

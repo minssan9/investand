@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { performance } from 'perf_hooks'
 import { EventEmitter } from 'events'
-import { FearGreedCalculator } from './fearGreedCalculator'
+import { FearGreedCalculator } from '@/services/core/fearGreedCalculator'
 
 const prisma = new PrismaClient()
 

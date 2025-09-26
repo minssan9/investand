@@ -6,7 +6,7 @@ import { MarketDataRepository } from '@/repositories/market/MarketDataRepository
 import { FearGreedIndexRepository } from '@/repositories/analytics/FearGreedIndexRepository'
 import { BOKCollector } from '@/collectors/financial/bokCollector'
 import { formatDate } from '@/utils/common/dateUtils'
-import { requireAdmin, requirePermission, AuthenticatedRequest } from '@/middleware/adminAuth'
+import { requireAdmin, requirePermission, AuthenticatedRequest } from '@/middleware/authMiddleware'
 
 const router = express.Router()
 
@@ -156,84 +156,7 @@ router.get('/system/collection-status', async (req, res) => {
   }
 })
 
-/**
- * 수동 데이터 수집 (관리자용)
- * POST /api/admin/collect-data
- * Body: { date: "2024-01-15", sources: ["KRX", "BOK"] }
- */
-router.post('/admin/collect-data', requireAdmin, requirePermission('write'), async (req: AuthenticatedRequest, res) => {
-  try {
-    const { date, sources } = req.body
-    const targetDate = date || formatDate(new Date())
-    const targetSources = sources || ['KRX', 'BOK']
-    const results: any[] = []
-
-    // KRX 데이터 수집
-    if (targetSources.includes('KRX')) {
-      try {
-        console.log(`[API] KRX 데이터 수집 시작: ${targetDate}`)
-        // KrxCollectionService already handles saving to database
-        const krxResult = await KrxCollectionService.collectDailyMarketData(targetDate, true)
-        results.push({
-          source: 'KRX',
-          status: 'SUCCESS',
-          message: 'KRX 데이터 수집 완료'
-        })
-      } catch (error) {
-        results.push({
-          source: 'KRX',
-          status: 'FAILED',
-          message: error instanceof Error ? error.message : 'KRX 데이터 수집 실패'
-        })
-      }
-    }
-
-    // BOK 데이터 수집
-    if (targetSources.includes('BOK')) {
-      try {
-        console.log(`[API] BOK 데이터 수집 시작: ${targetDate}`)
-        const bokData = await BOKCollector.collectDailyData(targetDate)
-        // BOK data should be saved using MarketDataRepository
-        if (bokData.interestRates) {
-          await MarketDataRepository.saveInterestRateData(bokData.interestRates)
-        }
-        if (bokData.exchangeRates) {
-          await MarketDataRepository.saveExchangeRateData(bokData.exchangeRates)
-        }
-        if (bokData.economicIndicators) {
-          await MarketDataRepository.saveEconomicIndicatorData(bokData.economicIndicators)
-        }
-        results.push({
-          source: 'BOK',
-          status: 'SUCCESS',
-          message: 'BOK 데이터 수집 완료'
-        })
-      } catch (error) {
-        results.push({
-          source: 'BOK',
-          status: 'FAILED',
-          message: error instanceof Error ? error.message : 'BOK 데이터 수집 실패'
-        })
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: '데이터 수집 완료',
-      data: {
-        date: targetDate,
-        results
-      }
-    })
-
-  } catch (error) {
-    console.error('[API] 수동 데이터 수집 실패:', error)
-    return res.status(500).json({
-      success: false,
-      message: '서버 오류가 발생했습니다.'
-    })
-  }
-})
+// NOTE: 수동 데이터 수집 기능은 /api/admin/collect-data 에서 처리됩니다.
 
 /**
  * Fear & Greed Index 수동 계산 (관리자용)

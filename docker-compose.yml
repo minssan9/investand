@@ -148,12 +148,15 @@ services:
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      # MySQL 8.0+ authentication configuration
+      MYSQL_AUTHENTICATION_PLUGIN: mysql_native_password
     ports:
       - "${DATABASE_PORT:-3306}:3306"
     volumes:
       - database_data:/var/lib/mysql
       - database_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
+      - ./database/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
       - ./backups:/backups
     networks:
       - kospi-network

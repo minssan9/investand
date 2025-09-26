@@ -277,6 +277,35 @@ export class ErrorRecoverySystem {
     return optimized
   }
 
+  static async handleBatchFailure(sessionId: string, error: Error): Promise<void> {
+    logger.error(`[ErrorRecovery] 배치 세션 실패 처리: ${sessionId}`, error)
+    
+    const operation: BatchOperation = {
+      id: sessionId,
+      type: 'batch_session'
+    }
+    
+    const context: ErrorContext = {
+      attempts: 1,
+      sessionId,
+      lastError: error,
+      timestamp: new Date()
+    }
+    
+    const recoveryAction = await this.handleFailure(operation, error, context)
+    
+    logger.info(`[ErrorRecovery] 배치 세션 복구 액션: ${recoveryAction.action}`, {
+      sessionId,
+      delay: recoveryAction.delay,
+      reason: recoveryAction.reason
+    })
+    
+    // TODO: 필요시 배치 세션 재실행 로직 추가
+    // if (recoveryAction.action === 'retry') {
+    //   // 지연 후 재시도 스케줄링
+    // }
+  }
+
   static onSuccess(operationKey: string): void {
     const pattern = this.failurePatterns.get(operationKey)
     if (pattern) {

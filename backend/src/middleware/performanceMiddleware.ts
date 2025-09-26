@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { performance } from 'perf_hooks'
-import MonitoringService from '@/services/monitoringService'
+import { MonitoringService } from '../services/infrastructure/monitoringService'
 
 // ============================================================================
 // TYPES AND INTERFACES
@@ -42,10 +42,10 @@ export class PerformanceMonitoringMiddleware {
   private metrics: PerformanceMetrics[] = []
   private endpointStats = new Map<string, EndpointStats>()
   private responseTimes = new Map<string, number[]>()
-  private monitoringService: typeof MonitoringService
+  private monitoringService: MonitoringService
 
   constructor() {
-    this.monitoringService = MonitoringService
+    this.monitoringService = new MonitoringService()
   }
 
   static getInstance(): PerformanceMonitoringMiddleware {
@@ -80,15 +80,18 @@ export class PerformanceMonitoringMiddleware {
         const isError = res.statusCode >= 400
         
         // Create performance metrics
+        const userAgent = req.get('User-Agent')
+        const contentLength = body ? Buffer.byteLength(JSON.stringify(body)) : undefined
+        
         const metrics: PerformanceMetrics = {
           endpoint,
           method: req.method,
           statusCode: res.statusCode,
           responseTime,
           timestamp: new Date(),
-          userAgent: req.get('User-Agent'),
+          userAgent: userAgent,
           ip: req.ip || req.connection.remoteAddress || 'unknown',
-          contentLength: body ? Buffer.byteLength(JSON.stringify(body)) : undefined,
+          contentLength: contentLength,
           memoryUsage: {
             rss: endMemory.rss - startMemory.rss,
             heapTotal: endMemory.heapTotal - startMemory.heapTotal,
@@ -215,7 +218,8 @@ export class PerformanceMonitoringMiddleware {
     if (sortedArray.length === 0) return 0
     
     const index = Math.ceil((percentile / 100) * sortedArray.length) - 1
-    return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))]
+    const safeIndex = Math.max(0, Math.min(index, sortedArray.length - 1))
+    return sortedArray[safeIndex] ?? 0
   }
 
   // ============================================================================
@@ -284,11 +288,11 @@ export class PerformanceMonitoringMiddleware {
     
     // Find slowest endpoint
     const endpointStats = this.getEndpointStats()
-    const slowestEndpoint = endpointStats.length > 0 ? endpointStats[0].endpoint : null
+    const slowestEndpoint = endpointStats.length > 0 ? endpointStats[0]?.endpoint ?? null : null
     
     // Find error-prone endpoint
     const errorProneEndpoints = this.getErrorProneEndpoints(1)
-    const errorProneEndpoint = errorProneEndpoints.length > 0 ? errorProneEndpoints[0].endpoint : null
+    const errorProneEndpoint = errorProneEndpoints.length > 0 ? errorProneEndpoints[0]?.endpoint ?? null : null
     
     // Find peak hour
     const hourlyStats = new Map<string, number>()
@@ -443,7 +447,7 @@ export class PerformanceMonitoringMiddleware {
     
     // Reset endpoint stats that haven't been used in the last hour
     const oneHourAgo = Date.now() - (60 * 60 * 1000)
-    for (const [endpoint, stats] of this.endpointStats.entries()) {
+    for (const [endpoint, stats] of Array.from(this.endpointStats.entries())) {
       if (stats.lastRequestTime.getTime() < oneHourAgo) {
         this.endpointStats.delete(endpoint)
         this.responseTimes.delete(endpoint)

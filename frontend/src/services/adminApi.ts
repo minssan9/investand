@@ -43,6 +43,28 @@ export interface AdminUser {
   permissions: string[]
 }
 
+export interface SignupRequest {
+  username: string
+  password: string
+  email: string
+  firstName?: string
+  lastName?: string
+  role?: 'VIEWER' | 'ANALYST' | 'ADMIN' | 'SUPER_ADMIN'
+}
+
+export interface SignupResponse {
+  user: {
+    id: string
+    username: string
+    email: string
+    role: string
+    firstName?: string
+    lastName?: string
+    isActive: boolean
+    createdAt: string
+  }
+}
+
 // DART Admin Types
 export interface DartBatchRequest {
   date: string
@@ -83,43 +105,67 @@ export const adminApi = {
   // 인증 관련
   async login(username: string, password: string): Promise<{ token: string; user: AdminUser }> {
     try {
-      // 실제 API 구현 전까지 mock 데이터 사용
-      if (username === 'admin' && password === 'admin123') {
-        const mockResponse = {
-          token: 'mock_admin_token_' + Date.now(),
-          user: {
-            id: '1',
-            username: 'admin',
-            role: 'admin' as const,
-            lastLogin: new Date().toISOString(),
-            permissions: ['read', 'write', 'delete', 'admin']
-          }
-        }
-        return mockResponse
+      const response = await api.post<{
+        success: boolean;
+        data: { token: string; user: AdminUser };
+        message: string;
+        code?: string;
+      }>('/admin/login', { username, password })
+
+      if (response.data.success) {
+        return response.data.data
       } else {
-        throw new Error('Invalid credentials')
+        throw new Error(response.data.message || '로그인에 실패했습니다.')
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('로그인에 실패했습니다.')
     }
   },
 
   async validateToken(token: string): Promise<AdminUser> {
     try {
-      // Token validation logic here
-      // For now, return mock user if token exists
-      if (token.startsWith('mock_admin_token_')) {
-        return {
-          id: '1',
-          username: 'admin',
-          role: 'admin',
-          lastLogin: new Date().toISOString(),
-          permissions: ['read', 'write', 'delete', 'admin']
-        }
+      const response = await api.post<{
+        success: boolean;
+        data: { user: AdminUser };
+        message: string;
+        code?: string;
+      }>('/admin/validate-token', { token })
+
+      if (response.data.success) {
+        return response.data.data.user
+      } else {
+        throw new Error(response.data.message || '토큰 검증에 실패했습니다.')
       }
-      throw new Error('Invalid token')
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('토큰 검증에 실패했습니다.')
+    }
+  },
+
+  async signup(request: SignupRequest): Promise<SignupResponse> {
+    try {
+      const response = await api.post<{
+        success: boolean;
+        data: SignupResponse;
+        message: string;
+        code?: string;
+      }>('/admin/signup', request)
+
+      if (response.data.success) {
+        return response.data.data
+      } else {
+        throw new Error(response.data.message || '계정 생성에 실패했습니다.')
+      }
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('계정 생성에 실패했습니다.')
     }
   },
 
@@ -168,12 +214,14 @@ export const adminApi = {
   async scheduleDartDailyBatch(request: DartBatchRequest): Promise<DartBatchResponse> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResponse }>(
-        '/dart/batch/daily',
+        '/admin/dart/batch/daily',
         request
       )
       return response.data.data
-    } catch (error) {
-      console.error('DART daily batch scheduling failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('DART 일별 배치 예약에 실패했습니다.')
     }
   },
@@ -181,12 +229,14 @@ export const adminApi = {
   async scheduleDartFinancialBatch(request: DartFinancialBatchRequest): Promise<DartBatchResponse> {
     try {
       const response = await api.post<{ success: boolean; data: DartBatchResponse }>(
-        '/dart/batch/financial',
+        '/admin/dart/batch/financial',
         request
       )
       return response.data.data
-    } catch (error) {
-      console.error('DART financial batch scheduling failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('DART 재무 배치 예약에 실패했습니다.')
     }
   },
@@ -194,11 +244,13 @@ export const adminApi = {
   async getDartBatchStatus(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/dart/batch/status'
+        '/admin/dart/batch/status'
       )
       return response.data.data
-    } catch (error) {
-      console.error('DART batch status fetch failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('DART 배치 상태 조회에 실패했습니다.')
     }
   },
@@ -206,11 +258,13 @@ export const adminApi = {
   async getDartHealth(): Promise<any> {
     try {
       const response = await api.get<{ success: boolean; data: any }>(
-        '/dart/health'
+        '/admin/dart/health'
       )
       return response.data.data
-    } catch (error) {
-      console.error('DART health check failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('DART 헬스 체크에 실패했습니다.')
     }
   },
@@ -219,11 +273,13 @@ export const adminApi = {
     try {
       const queryParams = date ? `?date=${date}` : ''
       const response = await api.get<{ success: boolean; data: any }>(
-        `/dart/stats${queryParams}`
+        `/admin/dart/stats${queryParams}`
       )
       return response.data.data
-    } catch (error) {
-      console.error('DART stats fetch failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('DART 통계 조회에 실패했습니다.')
     }
   },
@@ -232,25 +288,29 @@ export const adminApi = {
   async calculateFearGreedIndex(request: FearGreedCalculationRequest): Promise<CalculateIndexResponse> {
     try {
       const response = await api.post<{ success: boolean; data: CalculateIndexResponse }>(
-        '/fear-greed/calculate',
+        '/admin/calculate-index',
         request
       )
       return response.data.data
-    } catch (error) {
-      console.error('Fear & Greed index calculation failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('Fear & Greed Index 계산에 실패했습니다.')
     }
   },
 
   async recalculateFearGreedRange(request: FearGreedRangeRequest): Promise<FearGreedRangeResponse[]> {
     try {
-      const response = await api.post<{ success: boolean; data: FearGreedRangeResponse[] }>(
-        '/fear-greed/recalculate-range',
+      const response = await api.post<{ success: boolean; data: { results: FearGreedRangeResponse[] } }>(
+        '/admin/recalculate-range',
         request
       )
-      return response.data.data
-    } catch (error) {
-      console.error('Fear & Greed range recalculation failed:', error)
+      return response.data.data.results
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('Fear & Greed Index 범위 재계산에 실패했습니다.')
     }
   },
@@ -261,8 +321,10 @@ export const adminApi = {
         '/fear-greed/current'
       )
       return response.data.data
-    } catch (error) {
-      console.error('Fear & Greed current index fetch failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('현재 Fear & Greed Index 조회에 실패했습니다.')
     }
   },
@@ -273,8 +335,10 @@ export const adminApi = {
         `/fear-greed/history?days=${days}`
       )
       return response.data.data
-    } catch (error) {
-      console.error('Fear & Greed history fetch failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('Fear & Greed Index 히스토리 조회에 실패했습니다.')
     }
   },
@@ -285,9 +349,127 @@ export const adminApi = {
         '/fear-greed/stats'
       )
       return response.data.data
-    } catch (error) {
-      console.error('Fear & Greed stats fetch failed:', error)
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
       throw new Error('Fear & Greed Index 통계 조회에 실패했습니다.')
+    }
+  },
+
+  // 시스템 모니터링 기능
+  async getSystemHealth(): Promise<any> {
+    try {
+      const response = await api.get<{ success: boolean; data: any }>(
+        '/admin/system-health'
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('시스템 상태 조회에 실패했습니다.')
+    }
+  },
+
+  async getPerformanceMetrics(): Promise<any> {
+    try {
+      const response = await api.get<{ success: boolean; data: any }>(
+        '/admin/performance-metrics'
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('성능 지표 조회에 실패했습니다.')
+    }
+  },
+
+  async getSystemInfo(): Promise<any> {
+    try {
+      const response = await api.get<{ success: boolean; data: any }>(
+        '/admin/system-info'
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('시스템 정보 조회에 실패했습니다.')
+    }
+  },
+
+  async getLogs(limit: number = 50, level: string = 'all'): Promise<any> {
+    try {
+      const response = await api.get<{ success: boolean; data: any }>(
+        `/admin/logs?limit=${limit}&level=${level}`
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('로그 조회에 실패했습니다.')
+    }
+  },
+
+  // 시스템 관리 기능
+  async restartService(service: string): Promise<any> {
+    try {
+      const response = await api.post<{ success: boolean; data: any }>(
+        '/admin/restart-service',
+        { service }
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('서비스 재시작에 실패했습니다.')
+    }
+  },
+
+  async clearCache(): Promise<any> {
+    try {
+      const response = await api.post<{ success: boolean; data: any }>(
+        '/admin/clear-cache'
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('캐시 삭제에 실패했습니다.')
+    }
+  },
+
+  async getSystemConfig(): Promise<any> {
+    try {
+      const response = await api.get<{ success: boolean; data: any }>(
+        '/admin/system-config'
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('시스템 설정 조회에 실패했습니다.')
+    }
+  },
+
+  async updateSystemConfig(config: any): Promise<any> {
+    try {
+      const response = await api.put<{ success: boolean; data: any }>(
+        '/admin/system-config',
+        { config }
+      )
+      return response.data.data
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message)
+      }
+      throw new Error('시스템 설정 업데이트에 실패했습니다.')
     }
   }
 }

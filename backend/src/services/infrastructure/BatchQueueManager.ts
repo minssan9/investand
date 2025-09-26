@@ -34,7 +34,7 @@ class SimplePriorityQueue<T extends BatchJob> implements PriorityQueue<T> {
     let inserted = false
 
     for (let i = 0; i < this.items.length; i++) {
-      if (priorityOrder[item.priority] > priorityOrder[this.items[i].priority]) {
+      if (priorityOrder[item.priority] > priorityOrder[this.items[i]?.priority ?? 'low']) {
         this.items.splice(i, 0, item)
         inserted = true
         break
@@ -149,7 +149,7 @@ export class BatchQueueManager {
           await rateLimiter.waitForNext()
         }
 
-        const job = queue.dequeue()
+        const job = queue?.dequeue()
         if (job) {
           await this.executeJob(job)
         }

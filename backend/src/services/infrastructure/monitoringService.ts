@@ -3,7 +3,7 @@ import os from 'os'
 import process from 'process'
 import { PrismaClient } from '@prisma/client'
 import { EventEmitter } from 'events'
-import DataQueryErrorHandler from '../utils/dataQueryErrorHandler'
+import { DataQueryErrorHandler } from '@/utils/data/dataQueryErrorHandler'
 
 const prisma = new PrismaClient()
 

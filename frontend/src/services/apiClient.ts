@@ -99,7 +99,7 @@ class ApiClient {
     sources?: string[] 
   }): Promise<{ results: CollectionResult[] }> {
     return this.handleRequest<ApiResponse<{ results: CollectionResult[] }>>(
-      () => api.post('/api/admin/collect-data', params)
+      () => api.post('/admin/collect-data', params)
     ).then(res => res.data)
   }
 
