@@ -1,7 +1,7 @@
 import express from 'express'
 import { MessagingService } from '@/services/messaging/MessagingService'
-import { SubscriptionService } from '@/services/messaging/SubscriptionService'
 import { NotificationScheduler } from '@/services/messaging/NotificationScheduler'
+import { ChatManager } from '@/services/messaging/ChatManager'
 import { logger } from '@/utils/common/logger'
 
 const router = express.Router()
@@ -146,33 +146,28 @@ router.post('/send-daily-summary', async (req, res) => {
  */
 router.post('/subscribe', async (req, res) => {
   try {
-    const { chatId, userId, subscriptionType, preferences = {} } = req.body
+    const { chatId } = req.body
 
-    if (!chatId || !userId || !subscriptionType) {
+    if (!chatId) {
       return res.status(400).json({
         success: false,
-        error: 'chatId, userId, and subscriptionType are required'
+        error: 'chatId is required'
       })
     }
 
-    const subscriptionService = SubscriptionService.getInstance()
-    const result = await subscriptionService.subscribe(
-      chatId,
-      userId,
-      subscriptionType,
-      preferences
-    )
+    const chatManager = ChatManager.getInstance()
+    chatManager.addChat(chatId)
 
     return res.json({
-      success: result.success,
-      subscription: result.subscription,
-      error: result.error
+      success: true,
+      message: `Chat ID ${chatId} subscribed successfully`,
+      totalSubscribers: chatManager.getChatCount()
     })
   } catch (error) {
-    logger.error('[MessagingAPI] Error creating subscription:', error)
+    logger.error('[MessagingAPI] Error handling subscription request:', error)
     return res.status(500).json({
       success: false,
-      error: 'Failed to create subscription'
+      error: 'Failed to process subscription request'
     })
   }
 })
@@ -192,18 +187,19 @@ router.post('/unsubscribe', async (req, res) => {
       })
     }
 
-    const subscriptionService = SubscriptionService.getInstance()
-    const result = await subscriptionService.unsubscribe(chatId)
+    const chatManager = ChatManager.getInstance()
+    chatManager.removeChat(chatId)
 
     return res.json({
-      success: result.success,
-      error: result.error
+      success: true,
+      message: `Chat ID ${chatId} unsubscribed successfully`,
+      totalSubscribers: chatManager.getChatCount()
     })
   } catch (error) {
-    logger.error('[MessagingAPI] Error unsubscribing:', error)
+    logger.error('[MessagingAPI] Error handling unsubscribe request:', error)
     return res.status(500).json({
       success: false,
-      error: 'Failed to unsubscribe'
+      error: 'Failed to process unsubscribe request'
     })
   }
 })
@@ -214,44 +210,57 @@ router.post('/unsubscribe', async (req, res) => {
  */
 router.get('/subscribers', async (req, res) => {
   try {
-    const { type } = req.query
-    const subscriptionService = SubscriptionService.getInstance()
-    
-    let subscribers: number[] = []
-    
-    switch (type) {
-      case 'daily':
-        subscribers = await subscriptionService.getDailySubscribers()
-        break
-      case 'weekly':
-        subscribers = await subscriptionService.getWeeklySubscribers()
-        break
-      case 'alerts':
-        subscribers = await subscriptionService.getAlertSubscribers()
-        break
-      case 'analysis':
-        subscribers = await subscriptionService.getAnalysisSubscribers()
-        break
-      default:
-        // Get all subscribers
-        const daily = await subscriptionService.getDailySubscribers()
-        const weekly = await subscriptionService.getWeeklySubscribers()
-        const alerts = await subscriptionService.getAlertSubscribers()
-        const analysis = await subscriptionService.getAnalysisSubscribers()
-        subscribers = [...new Set([...daily, ...weekly, ...alerts, ...analysis])]
-    }
+    const chatManager = ChatManager.getInstance()
+    const subscribers = chatManager.getAllChats()
 
     return res.json({
       success: true,
       subscribers,
       count: subscribers.length,
-      type: type || 'all'
+      source: 'ChatManager storage'
     })
   } catch (error) {
     logger.error('[MessagingAPI] Error getting subscribers:', error)
     return res.status(500).json({
       success: false,
       error: 'Failed to get subscribers'
+    })
+  }
+})
+
+/**
+ * POST /api/messaging/sync-subscribers
+ * Sync chat IDs from Telegram API
+ */
+router.post('/sync-subscribers', async (req, res) => {
+  try {
+    const messagingService = MessagingService.getInstance()
+    const chatManager = ChatManager.getInstance()
+
+    // Get bot instance from messaging service
+    const bot = (messagingService as any).bot
+
+    if (!bot) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bot not initialized. Please initialize the bot first.'
+      })
+    }
+
+    await chatManager.syncFromTelegramAPI(bot)
+    const subscribers = chatManager.getAllChats()
+
+    return res.json({
+      success: true,
+      message: 'Successfully synced chat IDs from Telegram API',
+      subscribers,
+      count: subscribers.length
+    })
+  } catch (error) {
+    logger.error('[MessagingAPI] Error syncing subscribers:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to sync subscribers from Telegram API'
     })
   }
 })
@@ -384,6 +393,47 @@ router.post('/scheduler/send-analysis', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to send market analysis'
+    })
+  }
+})
+
+/**
+ * POST /api/messaging/send-dart-report
+ * Manually send DART stock holdings report to all subscribers
+ */
+router.post('/send-dart-report', async (req, res) => {
+  try {
+    const messagingService = MessagingService.getInstance()
+    const chatManager = ChatManager.getInstance()
+    const subscribers = chatManager.getAllChats()
+
+    if (subscribers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No subscribers found'
+      })
+    }
+
+    // Get today's date in YYYY-MM-DD format
+    const today: string = new Date().toISOString().split('T')[0]
+
+    // Fetch DART stock holdings data
+    const { DartDisclosureRepository } = await import('@/repositories/dart/DartDisclosureRepository')
+    const holdings = await DartDisclosureRepository.getMarketBuyIncreaseHoldings(today)
+
+    await messagingService.sendDartStockHoldingsReport(subscribers, holdings)
+
+    return res.json({
+      success: true,
+      message: `DART report sent to ${subscribers.length} subscribers (${holdings.length} holdings)`,
+      holdingsCount: holdings.length,
+      subscriberCount: subscribers.length
+    })
+  } catch (error) {
+    logger.error('[MessagingAPI] Error sending DART report:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to send DART report'
     })
   }
 })

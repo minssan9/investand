@@ -1,7 +1,7 @@
 import { logger } from '@/utils/common/logger'
 import { MessagingService } from './MessagingService'
-import { SubscriptionService } from './SubscriptionService'
 import { NotificationScheduler } from './NotificationScheduler'
+import { ChatManager } from './ChatManager'
 
 /**
  * Telegram Bot Handler
@@ -9,13 +9,13 @@ import { NotificationScheduler } from './NotificationScheduler'
  */
 export class TelegramBotHandler {
   private messagingService: MessagingService
-  private subscriptionService: SubscriptionService
   private scheduler: NotificationScheduler
+  private chatManager: ChatManager
 
   constructor() {
     this.messagingService = MessagingService.getInstance()
-    this.subscriptionService = SubscriptionService.getInstance()
     this.scheduler = NotificationScheduler.getInstance()
+    this.chatManager = ChatManager.getInstance()
   }
 
   /**
@@ -29,6 +29,9 @@ export class TelegramBotHandler {
       const userId = message.from.id
 
       logger.info(`[TelegramBotHandler] Received message from ${chatId}: ${text}`)
+
+      // Automatically register chat ID when user interacts with bot
+      this.chatManager.addChat(chatId)
 
       // Handle commands
       if (text.startsWith('/')) {
@@ -145,69 +148,58 @@ export class TelegramBotHandler {
    * Handle /subscribe command
    */
   private async handleSubscribeCommand(chatId: number, userId: number, args: string[]): Promise<void> {
-    const subscriptionType = args[0] || 'daily'
-    
-    if (!['daily', 'weekly', 'alerts', 'analysis'].includes(subscriptionType)) {
-      await this.messagingService.sendMessage(
-        chatId,
-        '❌ 잘못된 구독 타입입니다. daily, weekly, alerts, analysis 중 하나를 선택해주세요.'
-      )
-      return
-    }
+    // Chat ID is already automatically registered when user sends message
+    const chatCount = this.chatManager.getChatCount()
 
-    const result = await this.subscriptionService.subscribe(chatId, userId, subscriptionType as any)
-    
-    if (result.success) {
-      const typeNames = {
-        daily: '일일 요약',
-        weekly: '주간 분석',
-        alerts: '시장 알림',
-        analysis: '시장 분석'
-      }
-      
-      await this.messagingService.sendMessage(
-        chatId,
-        `✅ ${typeNames[subscriptionType as keyof typeof typeNames]} 구독이 완료되었습니다!`
-      )
-    } else {
-      await this.messagingService.sendMessage(
-        chatId,
-        `❌ 구독 중 오류가 발생했습니다: ${result.error}`
-      )
-    }
+    await this.messagingService.sendMessage(
+      chatId,
+      `✅ 구독이 활성화되었습니다!
+
+📊 정기 알림:
+• 일일 요약: 매일 오후 6시
+• 주간 분석: 매주 일요일 오후 7시
+• Fear & Greed 알림: 극단적 수치 감지시
+• DART 공시: 매일 밤 10시
+
+현재 활성 구독자: ${chatCount}명
+Chat ID: ${chatId}
+
+모든 알림을 자동으로 받으시게 됩니다.`
+    )
   }
 
   /**
    * Handle /unsubscribe command
    */
   private async handleUnsubscribeCommand(chatId: number): Promise<void> {
-    const result = await this.subscriptionService.unsubscribe(chatId)
-    
-    if (result.success) {
-      await this.messagingService.sendMessage(chatId, '✅ 모든 구독이 해지되었습니다.')
-    } else {
-      await this.messagingService.sendMessage(chatId, `❌ 구독 해지 중 오류가 발생했습니다: ${result.error}`)
-    }
+    this.chatManager.removeChat(chatId)
+
+    await this.messagingService.sendMessage(
+      chatId,
+      `✅ 구독이 해지되었습니다.
+
+더 이상 자동 알림을 받지 않습니다.
+다시 구독하려면 /subscribe 명령어를 사용해주세요.
+
+Chat ID: ${chatId}`
+    )
   }
 
   /**
    * Handle /status command
    */
   private async handleStatusCommand(chatId: number): Promise<void> {
-    const subscription = await this.subscriptionService.getSubscriptionByChatId(chatId)
-    
-    if (!subscription) {
-      await this.messagingService.sendMessage(chatId, '📋 현재 구독 중인 서비스가 없습니다.')
-      return
-    }
-
     const statusMessage = `📋 *구독 상태*
 
-🔹 구독 타입: ${subscription.subscriptionType}
-🔹 활성 상태: ${subscription.isActive ? '활성' : '비활성'}
-🔹 구독일: ${subscription.createdAt.toLocaleDateString('ko-KR')}
+🔹 Chat ID: ${chatId}
+🔹 구독 상태: 활성
+🔹 알림 타입: 전체 알림
 
-구독을 변경하려면 /subscribe 명령어를 사용하세요.`
+📊 정기 알림 시간:
+• 일일 요약: 매일 오후 6시
+• 주간 분석: 매주 일요일 오후 7시
+• Fear & Greed 알림: 극단적 수치 감지시
+• DART 공시: 매일 밤 10시`
 
     await this.messagingService.sendMessage(chatId, statusMessage)
   }

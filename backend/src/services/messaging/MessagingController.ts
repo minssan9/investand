@@ -1,8 +1,8 @@
 import { logger } from '@/utils/common/logger'
 import { MessagingService } from './MessagingService'
-import { SubscriptionService } from './SubscriptionService'
 import { NotificationScheduler } from './NotificationScheduler'
 import { TelegramBotHandler } from './TelegramBotHandler'
+import { ChatManager } from './ChatManager'
 
 /**
  * Messaging Controller
@@ -11,16 +11,16 @@ import { TelegramBotHandler } from './TelegramBotHandler'
 export class MessagingController {
   private static instance: MessagingController
   private messagingService: MessagingService
-  private subscriptionService: SubscriptionService
   private scheduler: NotificationScheduler
   private botHandler: TelegramBotHandler
+  private chatManager: ChatManager
   private isInitialized = false
 
   private constructor() {
     this.messagingService = MessagingService.getInstance()
-    this.subscriptionService = SubscriptionService.getInstance()
     this.scheduler = NotificationScheduler.getInstance()
     this.botHandler = new TelegramBotHandler()
+    this.chatManager = ChatManager.getInstance()
   }
 
   /**
@@ -80,25 +80,11 @@ export class MessagingController {
   private async handleCallbackQuery(callbackQuery: any): Promise<void> {
     try {
       const chatId = callbackQuery.message.chat.id
-      const data = callbackQuery.data
 
-      // Handle different callback data
-      switch (data) {
-        case 'subscribe_daily':
-          await this.subscriptionService.subscribe(chatId, callbackQuery.from.id, 'daily')
-          await this.messagingService.sendMessage(chatId, '✅ 일일 요약 구독이 완료되었습니다!')
-          break
-        case 'subscribe_weekly':
-          await this.subscriptionService.subscribe(chatId, callbackQuery.from.id, 'weekly')
-          await this.messagingService.sendMessage(chatId, '✅ 주간 분석 구독이 완료되었습니다!')
-          break
-        case 'subscribe_alerts':
-          await this.subscriptionService.subscribe(chatId, callbackQuery.from.id, 'alerts')
-          await this.messagingService.sendMessage(chatId, '✅ 시장 알림 구독이 완료되었습니다!')
-          break
-        default:
-          await this.messagingService.sendMessage(chatId, '❓ 알 수 없는 요청입니다.')
-      }
+      await this.messagingService.sendMessage(
+        chatId,
+        `ℹ️ 구독 관리 안내\n\n구독 설정이 자동으로 활성화되었습니다.\n구독 해지하려면 /unsubscribe 명령어를 사용해주세요.\n\nChat ID: ${chatId}`
+      )
     } catch (error) {
       logger.error('[MessagingController] Error handling callback query:', error)
     }
@@ -109,7 +95,7 @@ export class MessagingController {
    */
   async sendDailyUpdate(): Promise<void> {
     try {
-      const subscribers = await this.subscriptionService.getDailySubscribers()
+      const subscribers = this.chatManager.getAllChats()
       if (subscribers.length > 0) {
         await this.messagingService.sendFearGreedUpdate(subscribers)
         logger.info(`[MessagingController] Daily update sent to ${subscribers.length} subscribers`)
@@ -124,7 +110,7 @@ export class MessagingController {
    */
   async sendWeeklyAnalysis(): Promise<void> {
     try {
-      const subscribers = await this.subscriptionService.getWeeklySubscribers()
+      const subscribers = this.chatManager.getAllChats()
       if (subscribers.length > 0) {
         await this.scheduler.sendMarketAnalysis(subscribers)
         logger.info(`[MessagingController] Weekly analysis sent to ${subscribers.length} subscribers`)
@@ -140,14 +126,11 @@ export class MessagingController {
    */
   async sendAlertIfNeeded(fearGreedValue: number): Promise<void> {
     try {
-      const alertSubscribers = await this.subscriptionService.getAlertSubscribers()
-      
-      for (const chatId of alertSubscribers) {
-        const shouldAlert = await this.subscriptionService.shouldSendAlert(chatId, fearGreedValue)
-        
-        if (shouldAlert) {
-          await this.messagingService.sendFearGreedUpdate([chatId])
-        }
+      const alertSubscribers = this.chatManager.getAllChats()
+
+      // Send alert if extreme fear or extreme greed
+      if (fearGreedValue <= 20 || fearGreedValue >= 80) {
+        await this.messagingService.sendFearGreedUpdate(alertSubscribers)
       }
     } catch (error) {
       logger.error('[MessagingController] Error sending alerts:', error)

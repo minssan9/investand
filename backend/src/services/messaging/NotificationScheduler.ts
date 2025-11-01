@@ -1,6 +1,6 @@
 import { logger } from '@/utils/common/logger'
 import { MessagingService } from './MessagingService'
-import { SubscriptionService } from './SubscriptionService'
+import { ChatManager } from './ChatManager'
 import { MarketAnalysisService } from '@/services/domain/MarketAnalysisService'
 import { formatDate } from '@/utils/common/dateUtils'
 
@@ -11,13 +11,13 @@ import { formatDate } from '@/utils/common/dateUtils'
 export class NotificationScheduler {
   private static instance: NotificationScheduler
   private messagingService: MessagingService
-  private subscriptionService: SubscriptionService
+  private chatManager: ChatManager
   private isRunning = false
   private intervals: NodeJS.Timeout[] = []
 
   private constructor() {
     this.messagingService = MessagingService.getInstance()
-    this.subscriptionService = SubscriptionService.getInstance()
+    this.chatManager = ChatManager.getInstance()
   }
 
   /**
@@ -135,14 +135,14 @@ export class NotificationScheduler {
   }
 
   /**
-   * Send daily summary to all daily subscribers
+   * Send daily summary to all subscribers
    */
   private async sendDailySummary(): Promise<void> {
     try {
-      const subscribers = await this.subscriptionService.getDailySubscribers()
-      
+      const subscribers = this.chatManager.getAllChats()
+
       if (subscribers.length === 0) {
-        logger.info('[NotificationScheduler] No daily subscribers found')
+        logger.info('[NotificationScheduler] No subscribers found')
         return
       }
 
@@ -154,23 +154,23 @@ export class NotificationScheduler {
   }
 
   /**
-   * Send weekly analysis to all weekly subscribers
+   * Send weekly analysis to all subscribers
    */
   private async sendWeeklyAnalysis(): Promise<void> {
     try {
-      const subscribers = await this.subscriptionService.getWeeklySubscribers()
-      
+      const subscribers = this.chatManager.getAllChats()
+
       if (subscribers.length === 0) {
-        logger.info('[NotificationScheduler] No weekly subscribers found')
+        logger.info('[NotificationScheduler] No subscribers found')
         return
       }
 
       // Get weekly market analysis
       const endDate = formatDate(new Date())
       const startDate = formatDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
-      
+
       const analysis = await MarketAnalysisService.getPeriodMarketAnalysis(startDate, endDate)
-      
+
       await this.messagingService.sendMarketAnalysis(subscribers, analysis)
       logger.info(`[NotificationScheduler] Weekly analysis sent to ${subscribers.length} subscribers`)
     } catch (error) {
@@ -183,27 +183,22 @@ export class NotificationScheduler {
    */
   private async checkAndSendFearGreedAlerts(): Promise<void> {
     try {
-      const alertSubscribers = await this.subscriptionService.getAlertSubscribers()
-      
+      const alertSubscribers = this.chatManager.getAllChats()
+
       if (alertSubscribers.length === 0) {
         return
       }
 
       const today = formatDate(new Date())
-      // Get Fear & Greed result from calculator instead of messaging service
+      // Get Fear & Greed result from calculator
       const { FearGreedCalculator } = await import('@/services/core/fearGreedCalculator')
       const fearGreedResult = await FearGreedCalculator.calculateIndex(today)
-      
-      // Check each subscriber's threshold
-      for (const chatId of alertSubscribers) {
-        const shouldAlert = await this.subscriptionService.shouldSendAlert(
-          chatId,
-          fearGreedResult.value || 50
-        )
-        
-        if (shouldAlert) {
-          await this.messagingService.sendFearGreedUpdate([chatId])
-        }
+
+      // Send alert if extreme fear or extreme greed
+      const fearGreedValue = fearGreedResult.value || 50
+      if (fearGreedValue <= 20 || fearGreedValue >= 80) {
+        await this.messagingService.sendFearGreedUpdate(alertSubscribers)
+        logger.info(`[NotificationScheduler] Fear & Greed alert sent (value: ${fearGreedValue})`)
       }
     } catch (error) {
       logger.error('[NotificationScheduler] Error checking Fear & Greed alerts:', error)
@@ -260,16 +255,13 @@ export class NotificationScheduler {
 
   /**
    * Send DART stock holdings report to all subscribers
-   * Note: Currently sends to all bot subscribers (from TELEGRAM_CHAT_IDS env variable)
-   * TODO: Implement subscription type filtering in the future
    */
   private async sendDartStockHoldingsReport(): Promise<void> {
     try {
-      // Get all subscribers (currently from environment variable)
-      const subscribers = await this.subscriptionService.getAllSubscribers()
+      const subscribers = this.chatManager.getAllChats()
 
       if (subscribers.length === 0) {
-        logger.warn('[NotificationScheduler] No subscribers found for DART report. Set TELEGRAM_CHAT_IDS environment variable.')
+        logger.warn('[NotificationScheduler] No subscribers found for DART report.')
         return
       }
 
