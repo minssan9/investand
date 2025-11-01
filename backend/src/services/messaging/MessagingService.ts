@@ -365,6 +365,48 @@ ${changeEmoji} ${change >= 0 ? '+' : ''}${change}원 (${changeRate}%)`
   }
 
   /**
+   * Format DART stock holdings message
+   */
+  private formatDartStockHoldingsMessage(holdings: any[]): string {
+    if (holdings.length === 0) {
+      return `📊 *DART 장내매수 지분증가 리포트*
+
+오늘은 장내매수로 인한 지분증가 공시가 없습니다.
+
+⏰ ${formatDate(new Date())}`
+    }
+
+    let message = `📊 *DART 장내매수 지분증가 리포트*
+
+총 ${holdings.length}건의 장내매수 지분증가 공시가 있습니다.
+
+`
+
+    // 상위 10개 항목만 표시
+    const topHoldings = holdings.slice(0, 10)
+
+    topHoldings.forEach((holding, index) => {
+      const changeRatio = parseFloat(holding.changeRatio || '0')
+      const holdingRatio = parseFloat(holding.holdingRatio || '0')
+
+      message += `${index + 1}. *${holding.corpName}* (${holding.stockCode || 'N/A'})
+   보고자: ${holding.reporterName}
+   증감률: +${changeRatio.toFixed(2)}%
+   보유비율: ${holdingRatio.toFixed(2)}%
+
+`
+    })
+
+    if (holdings.length > 10) {
+      message += `... 외 ${holdings.length - 10}건\n\n`
+    }
+
+    message += `⏰ ${formatDate(new Date())}`
+
+    return message
+  }
+
+  /**
    * Get emoji based on Fear & Greed value
    */
   private getFearGreedEmoji(value: number): string {

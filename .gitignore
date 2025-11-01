@@ -9,7 +9,7 @@ frontend/package-lock.json
 
 # Environment files (all .env, .env.*, and in subdirs)
 .env
-**/.env
+.env
 
 .DS_Store
 *.iml

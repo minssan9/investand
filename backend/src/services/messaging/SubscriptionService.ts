@@ -187,12 +187,41 @@ export class SubscriptionService {
   }
 
   /**
+   * Get all bot subscribers (from environment variable for now)
+   * In the future, this will be replaced with database queries
+   */
+  async getAllSubscribers(): Promise<number[]> {
+    try {
+      // Get chat IDs from environment variable
+      // Format: TELEGRAM_CHAT_IDS=123456789,987654321
+      const chatIdsEnv = process.env.TELEGRAM_CHAT_IDS || ''
+
+      if (!chatIdsEnv) {
+        logger.warn('[SubscriptionService] No TELEGRAM_CHAT_IDS environment variable set')
+        return []
+      }
+
+      const chatIds = chatIdsEnv
+        .split(',')
+        .map(id => parseInt(id.trim()))
+        .filter(id => !isNaN(id))
+
+      logger.info(`[SubscriptionService] Found ${chatIds.length} subscribers from environment`)
+      return chatIds
+    } catch (error) {
+      logger.error('[SubscriptionService] Error getting all subscribers:', error)
+      return []
+    }
+  }
+
+  /**
    * Get subscribers for daily summary
    */
   async getDailySubscribers(): Promise<number[]> {
     try {
-      const subscriptions = await this.getActiveSubscriptions('daily')
-      return subscriptions.map(sub => sub.chatId)
+      // For now, return all subscribers
+      // In the future, this will filter by subscription type
+      return await this.getAllSubscribers()
     } catch (error) {
       logger.error('[SubscriptionService] Error getting daily subscribers:', error)
       return []
@@ -204,8 +233,9 @@ export class SubscriptionService {
    */
   async getWeeklySubscribers(): Promise<number[]> {
     try {
-      const subscriptions = await this.getActiveSubscriptions('weekly')
-      return subscriptions.map(sub => sub.chatId)
+      // For now, return all subscribers
+      // In the future, this will filter by subscription type
+      return await this.getAllSubscribers()
     } catch (error) {
       logger.error('[SubscriptionService] Error getting weekly subscribers:', error)
       return []
@@ -217,8 +247,9 @@ export class SubscriptionService {
    */
   async getAlertSubscribers(): Promise<number[]> {
     try {
-      const subscriptions = await this.getActiveSubscriptions('alerts')
-      return subscriptions.map(sub => sub.chatId)
+      // For now, return all subscribers
+      // In the future, this will filter by subscription type
+      return await this.getAllSubscribers()
     } catch (error) {
       logger.error('[SubscriptionService] Error getting alert subscribers:', error)
       return []
@@ -230,8 +261,9 @@ export class SubscriptionService {
    */
   async getAnalysisSubscribers(): Promise<number[]> {
     try {
-      const subscriptions = await this.getActiveSubscriptions('analysis')
-      return subscriptions.map(sub => sub.chatId)
+      // For now, return all subscribers
+      // In the future, this will filter by subscription type
+      return await this.getAllSubscribers()
     } catch (error) {
       logger.error('[SubscriptionService] Error getting analysis subscribers:', error)
       return []

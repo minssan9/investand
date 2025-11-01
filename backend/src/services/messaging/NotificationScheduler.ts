@@ -50,6 +50,9 @@ export class NotificationScheduler {
     
     // Schedule Fear & Greed alerts (every 2 hours during market hours)
     this.scheduleFearGreedAlerts()
+
+    // Schedule DART stock holdings report at 10:00 PM KST
+    this.scheduleDartStockHoldingsReport()
   }
 
   /**
@@ -231,6 +234,56 @@ export class NotificationScheduler {
       logger.info(`[NotificationScheduler] Market analysis sent to ${chatIds.length} subscribers`)
     } catch (error) {
       logger.error('[NotificationScheduler] Error sending market analysis:', error)
+    }
+  }
+
+  /**
+   * Schedule DART stock holdings report
+   */
+  private scheduleDartStockHoldingsReport(): void {
+    const interval = setInterval(async () => {
+      try {
+        const now = new Date()
+        const hour = now.getHours()
+
+        // Send at 10:00 PM KST (22:00)
+        if (hour === 22) {
+          await this.sendDartStockHoldingsReport()
+        }
+      } catch (error) {
+        logger.error('[NotificationScheduler] Error in DART stock holdings report scheduler:', error)
+      }
+    }, 60 * 60 * 1000) // Check every hour
+
+    this.intervals.push(interval)
+  }
+
+  /**
+   * Send DART stock holdings report to all subscribers
+   * Note: Currently sends to all bot subscribers (from TELEGRAM_CHAT_IDS env variable)
+   * TODO: Implement subscription type filtering in the future
+   */
+  private async sendDartStockHoldingsReport(): Promise<void> {
+    try {
+      // Get all subscribers (currently from environment variable)
+      const subscribers = await this.subscriptionService.getAllSubscribers()
+
+      if (subscribers.length === 0) {
+        logger.warn('[NotificationScheduler] No subscribers found for DART report. Set TELEGRAM_CHAT_IDS environment variable.')
+        return
+      }
+
+      // Get today's date in YYYY-MM-DD format
+      const today = formatDate(new Date())
+
+      // Fetch DART stock holdings data
+      const { DartDisclosureRepository } = await import('@/repositories/dart/DartDisclosureRepository')
+      const holdings = await DartDisclosureRepository.getMarketBuyIncreaseHoldings(today)
+
+      await this.messagingService.sendDartStockHoldingsReport(subscribers, holdings)
+      logger.info(`[NotificationScheduler] DART stock holdings report sent to ${subscribers.length} subscribers (${holdings.length} holdings)`)
+    } catch (error) {
+      logger.error('[NotificationScheduler] Error sending DART stock holdings report:', error)
     }
   }
 
