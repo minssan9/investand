@@ -1,6 +1,6 @@
 #!/usr/bin/env ts-node
 
-import { DartCollectionService } from '@/services/collectors/DartCollectionService'
+import { DartCollectionService } from '@/collectors/dartCollectionService'
 import { formatDate } from '@/utils/common/dateUtils'
 import { logger } from '@/utils/common/logger'
 

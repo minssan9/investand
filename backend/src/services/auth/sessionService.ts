@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { Request } from 'express'
-import { TokenService } from './tokenService'
+import { TokenService } from '@/services/auth/tokenService'
 
 const prisma = new PrismaClient()
 

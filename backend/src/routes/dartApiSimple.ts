@@ -1,6 +1,7 @@
 import express from 'express'
 import { logger } from '@/utils/common/logger'
-import { DartCollectionService } from '@/services/collectors/DartCollectionService'
+import { DartCollectionService } from '@/collectors/dartCollectionService'
+import { ServiceRegistry } from '@/services/domain/ServiceRegistry'
 import { formatDate } from '@/utils/common/dateUtils'
 
 const router = express.Router()
@@ -11,15 +12,7 @@ const router = express.Router()
  */
 router.get('/batch/status', async (req, res) => {
   try {
-    // Mock status for now - in production this would call DartBatchService.getStatus()
-    const status = {
-      isRunning: true,
-      activeJobs: 0,
-      completedToday: 5,
-      pendingJobs: 0,
-      lastRunTime: new Date().toISOString(),
-      nextRunTime: null
-    }
+    const status = ServiceRegistry.batchProcessing.getStatus()
 
     res.json({
       success: true,

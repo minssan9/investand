@@ -7,7 +7,7 @@
             🛠️ Admin {{ isSignupMode ? 'Signup' : 'Login' }}
           </div>
           <div class="text-h6 text-grey-7 q-mb-lg">
-            KOSPI Fear & Greed Index
+            investand
           </div>
 
           <!-- Mode Toggle Tabs -->

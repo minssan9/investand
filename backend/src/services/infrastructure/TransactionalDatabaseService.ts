@@ -86,6 +86,9 @@ export class TransactionalDatabaseService {
 
     // Simple round-robin connection selection
     const connection = this.connectionPool[Math.floor(Math.random() * this.connectionPool.length)]
+    if (!connection) {
+      throw new Error('No database connections available')
+    }
     return connection
   }
 
@@ -114,6 +117,10 @@ export class TransactionalDatabaseService {
           
           for (let i = 0; i < operations.length; i++) {
             const operation = operations[i]
+            if (!operation) {
+              logger.warn(`[TransactionalDB] Skipping undefined operation at index ${i}`)
+              continue
+            }
             
             try {
               // Create savepoint for each operation
@@ -174,8 +181,8 @@ export class TransactionalDatabaseService {
       if (result.operationsFailed > 0 && maxRetries > 1) {
         logger.info(`[TransactionalDB] Retrying failed operations: ${result.operationsFailed} operations`)
         
-        const failedOperations = operations.filter((_, index) => 
-          result.errors.some(e => e.operationId === operations[index].id)
+        const failedOperations = operations.filter((operation, index) => 
+          operation && result.errors.some(e => e.operationId === operation.id)
         )
         
         if (failedOperations.length > 0) {

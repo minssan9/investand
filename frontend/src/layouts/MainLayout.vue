@@ -3,7 +3,7 @@
     <q-header elevated>
       <q-toolbar>
         <q-toolbar-title>
-          🇰🇷 KOSPI Fear & Greed Index
+          🇰🇷 investand
         </q-toolbar-title>
 
         <div>

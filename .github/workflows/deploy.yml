@@ -142,46 +142,24 @@ jobs:
         key: ${{ secrets.VM_SSH_KEY }}
         script: |
           set -e
-          cd /home/min/fg-index
-          
-          # Pull latest code
-          git pull origin main
-          
-          # Create production environment file
-          cat > .env.production << EOL
-          NODE_ENV=production
-          PORT=3000
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-          DATABASE_NAME=${{ secrets.DATABASE_NAME }}
-          DATABASE_USER=${{ secrets.DATABASE_USER }}
-          DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
-          KIS_API_KEY=${{ secrets.KIS_API_KEY }}
-          KIS_API_SECRET=${{ secrets.KIS_API_SECRET }}
-          BOK_API_KEY=${{ secrets.BOK_API_KEY }}
-          DART_API_KEY=${{ secrets.DART_API_KEY }}
-          REDIS_URL=${{ secrets.REDIS_URL }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
-          CERTBOT_EMAIL=${{ secrets.CERTBOT_EMAIL }}
-          EOL
-          
+          cd /data/devops/investand
+
           # Login to GitHub Container Registry
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          
+
           # Backup and deploy
           if docker ps -q --filter "name=fg-"; then
             echo "Creating backup..."
-            ./scripts/backup.sh
+            bash backup.sh || echo "Backup script not found, skipping..."
           fi
-          
-          # Pull latest images and deploy
-          docker-compose -f docker-compose.prod.yml pull
-          docker-compose -f docker-compose.prod.yml up -d --remove-orphans
-          
+
+          # Pull latest images and deploy using docker-compose from /data/devops
+          docker-compose pull
+          docker-compose up -d --remove-orphans
+
           # Wait for services to be healthy
           sleep 30
-          
+
           # Health check
           for i in {1..5}; do
             if curl -f http://localhost/health && curl -f http://localhost/api/health; then
@@ -195,7 +173,7 @@ jobs:
               sleep 10
             fi
           done
-          
+
           # Clean up old images
           docker image prune -f
     

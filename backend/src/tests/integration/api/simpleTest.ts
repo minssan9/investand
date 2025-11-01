@@ -10,20 +10,20 @@ try {
   console.log('\n1. 모듈 Import 테스트...')
   
   // KRX 수집기 관련 타입만 import
-  const krxTypes = require('../collectors/krxCollector')
+  const krxTypes = require('@/collectors/krxCollectionService')
   console.log('  ✅ KRX Collector 타입 로드 성공')
   
   // BOK 수집기 관련 타입만 import  
-  const bokTypes = require('../collectors/bokCollector')
+  const bokTypes = require('@/collectors/financial/bokCollector')
   console.log('  ✅ BOK Collector 타입 로드 성공')
   
   // Fear & Greed 계산기 타입만 import
-  const fearGreedTypes = require('@/services/fearGreedCalculator')
+  const fearGreedTypes = require('@/services/core/fearGreedCalculator')
   console.log('  ✅ Fear & Greed Calculator 타입 로드 성공')
   
-  // 스케줄러 타입만 import
-  const schedulerTypes = require('@/services/scheduler')
-  console.log('  ✅ Scheduler 타입 로드 성공')
+  // 배치 처리 서비스 타입만 import
+  const batchProcessingTypes = require('@/services/domain/BatchProcessingService')
+  console.log('  ✅ BatchProcessingService 타입 로드 성공')
   
 } catch (error) {
   console.error('  ❌ 모듈 Import 실패:', error)

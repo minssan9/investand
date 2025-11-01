@@ -83,50 +83,6 @@
             </q-item-section>
           </q-item>
 
-          <q-item
-            clickable
-            v-ripple
-            :to="{ name: 'admin-data-collection' }"
-            exact-active-class="bg-blue-1 text-blue-10"
-          >
-            <q-item-section avatar>
-              <q-icon name="cloud_download" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>데이터 수집</q-item-label>
-              <q-item-label caption>수동 수집 및 관리</q-item-label>
-            </q-item-section>
-          </q-item>
-
-          <q-item
-            clickable
-            v-ripple
-            :to="{ name: 'admin-system-monitoring' }"
-            exact-active-class="bg-blue-1 text-blue-10"
-          >
-            <q-item-section avatar>
-              <q-icon name="monitoring" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>시스템 모니터링</q-item-label>
-              <q-item-label caption>성능 및 상태 확인</q-item-label>
-            </q-item-section>
-          </q-item>
-
-          <q-item
-            clickable
-            v-ripple
-            :to="{ name: 'admin-calculator' }"
-            exact-active-class="bg-blue-1 text-blue-10"
-          >
-            <q-item-section avatar>
-              <q-icon name="calculate" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>계산기 관리</q-item-label>
-              <q-item-label caption>Fear & Greed 지수 관리</q-item-label>
-            </q-item-section>
-          </q-item>
 
           <q-item
             clickable
@@ -201,7 +157,7 @@
     <q-footer elevated class="bg-grey-8 text-white">
       <q-toolbar class="justify-center">
         <q-toolbar-title class="text-center text-caption">
-          KOSPI Fear & Greed Index Admin Panel | 
+          investand Admin Panel | 
           Last Update: {{ lastUpdateTime }}
         </q-toolbar-title>
       </q-toolbar>
@@ -220,7 +176,7 @@ const $q = useQuasar()
 
 const leftDrawerOpen = ref(false)
 const currentTime = ref(new Date())
-let timeInterval: number
+let timeInterval: NodeJS.Timeout
 
 const lastUpdateTime = computed(() => {
   return format(currentTime.value, 'yyyy-MM-dd HH:mm:ss')

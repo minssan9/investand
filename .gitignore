@@ -39,3 +39,5 @@ dev-debug.log
 .cursor/mcp.json
 .mcp.json
 .DS_Store
+backend/.DS_Store
+.DS_Store

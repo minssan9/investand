@@ -37,7 +37,7 @@ Router.beforeEach((to, _from, next) => {
 
   // Set page title
   if (to.meta.title) {
-    document.title = `${to.meta.title} | KOSPI Fear & Greed Index`
+    document.title = `${to.meta.title} | investand`
   }
 
   next()

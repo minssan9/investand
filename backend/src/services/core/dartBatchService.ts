@@ -1,7 +1,6 @@
 import { DartApiClient } from '@/clients/dart/DartApiClient'
-import { DartCollectionService } from '@/services/collectors/DartCollectionService'
+import { DartCollectionService } from '@/collectors/dartCollectionService'
 import { DartDisclosureRepository } from '@/repositories/dart/DartDisclosureRepository'
-import { BatchQueueManager } from '@/services/infrastructure/BatchQueueManager'
 import { ErrorRecoverySystem } from '@/services/infrastructure/ErrorRecoverySystem'
 import { RateLimitingService } from '@/services/infrastructure/RateLimitingService'
 import { TransactionalDatabaseService } from '@/services/infrastructure/TransactionalDatabaseService'
@@ -44,7 +43,6 @@ export class DartBatchService {
 
     try {
       // 인프라 서비스들 초기화
-      BatchQueueManager.initialize()
       ErrorRecoverySystem.initialize()
       await TransactionalDatabaseService.initialize()
       
@@ -99,18 +97,8 @@ export class DartBatchService {
       scheduledAt: new Date()
     }
 
-    // 강화된 큐 매니저를 통해 작업 추가
-    await BatchQueueManager.addJob('dart', {
-      id: jobId,
-      source: 'dart',
-      type: 'disclosure',
-      priority: queueItem.priority,
-      payload: queueItem.payload,
-      attempts: 0,
-      maxAttempts: queueItem.maxAttempts,
-      status: 'pending',
-      createdAt: new Date()
-    })
+    // 배치 작업 실행
+    logger.info(`[DART Batch] 배치 작업 시작: ${jobId}`)
 
     this.batchQueue.push(queueItem)
     logger.info(`[DART Batch] Enhanced ${sessionType} 배치 수집 작업 생성: ${jobId}`)
@@ -254,7 +242,7 @@ export class DartBatchService {
    */
   private static async processDailyDisclosures(
     date: string, 
-    options?: DartFilterOptions & { sessionType?: string }
+    options?: DartFilterOptions & { sessionType?: string; maxPages?: number; pageSize?: number }
   ): Promise<any> {
     const startTime = Date.now()
     const sessionType = options?.sessionType || 'default'
@@ -374,30 +362,19 @@ export class DartBatchService {
   }
 
   /**
-   * 기업정보 처리
+   * 기업정보 처리 (현재 지원되지 않음 - 지분공시 전용)
    */
   private static async processCompanyInfo(corpCodes: string[]): Promise<any> {
-    const startTime = Date.now()
-    const results = []
-
-    for (const corpCode of corpCodes) {
-      try {
-        const companyInfo = await DartApiClient.fetchCompanyInfo(corpCode)
-        results.push({ corpCode, data: companyInfo })
-      } catch (error) {
-        results.push({ corpCode, error: (error as Error).message })
-      }
-    }
-
-    const successResults = results.filter(r => !r.error)
-    await this.saveCompanyInfo(successResults)
-
-    this.updateStats(corpCodes.length, Date.now() - startTime, successResults.length)
-
+    logger.warn('[DART Batch] 기업정보 조회는 현재 지원되지 않습니다 (지분공시 전용 시스템)')
+    
     return {
       totalCorps: corpCodes.length,
-      successCount: successResults.length,
-      processingTime: Date.now() - startTime
+      successCount: 0,
+      results: corpCodes.map(corpCode => ({ 
+        corpCode, 
+        error: '기업정보 조회는 지원되지 않습니다' 
+      })),
+      processingTime: 0
     }
   }
 
@@ -607,7 +584,6 @@ export class DartBatchService {
     return {
       ...basicStatus,
       infrastructure: {
-        batchQueue: BatchQueueManager.getQueueStatus('dart'),
         errorRecovery: ErrorRecoverySystem.getSystemStatus(),
         rateLimiting: RateLimitingService.getStats('dart'),
         database: TransactionalDatabaseService.getConnectionStats()

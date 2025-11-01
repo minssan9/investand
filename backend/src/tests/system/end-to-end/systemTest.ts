@@ -1,6 +1,6 @@
 import { DatabaseService } from '@/services/databaseService'
 import { FearGreedCalculator } from '@/services/fearGreedCalculator'
-import { formatDate } from '../utils/dateUtils'
+import { formatDate } from '@/utils/dateUtils'
 
 /**
  * 시스템 통합 테스트

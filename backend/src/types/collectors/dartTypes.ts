@@ -114,6 +114,57 @@ export interface DartStockHoldingData {
   isu_exctv_ofcps?: string     // 발행회사 임원 직책
 }
 
+// 통합 지분공시 배치 데이터 타입
+export interface DartStockDisclosureBatchData {
+  // 기본 공시 정보
+  receiptNumber: string
+  disclosureType: string
+  beforeHolding?: number
+  afterHolding?: number
+  changeAmount?: number
+  changeReason?: string
+  reporterName?: string
+  isSignificant: boolean
+  marketImpact?: string
+  impactScore?: number
+  
+  // 주요 지분 관련 필드
+  majorHoldingReceiptNumber?: string
+  majorHoldingReceiptDate?: string
+  majorHoldingCorpCode?: string
+  majorHoldingCorpName?: string
+  majorHoldingReportType?: string
+  majorHoldingShares?: string
+  majorHoldingChangeShares?: string
+  majorHoldingRatio?: string
+  majorHoldingChangeRatio?: string
+  majorHoldingTransactionShares?: string
+  majorHoldingTransactionRatio?: string
+  majorHoldingReportReason?: string
+  
+  // 분석 관련 필드
+  majorHoldingsCount?: number
+  executiveHoldingsCount?: number
+  totalAnalysisScore?: number
+  topMajorHolder?: string
+  maxMajorHoldingRate?: number
+  topExecutiveHolder?: string
+  maxExecutiveHoldingRate?: number
+}
+
+// 배치 처리 결과 타입
+export interface DartStockDisclosureBatchResult {
+  success: boolean
+  transactionId: string
+  operationsCompleted: number
+  operationsFailed: number
+  saved: number
+  updated: number
+  failed: number
+  errors: Array<{ receiptNumber: string; error: string }>
+  processingTime: number
+}
+
 // 대량보유 현황 API 응답 (majorstock 엔드포인트)
 export interface DartMajorStockResponse {
   status: string

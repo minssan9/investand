@@ -72,7 +72,7 @@ export class DartCollectionService {
   /**
    * 기업별 공시데이터 수집 (전체 페이지네이션)
    */
-  static async collectCompanyDisclosures(
+  /*static async collectCompanyDisclosures(
     corpCode: string, 
     startDate: string, 
     endDate: string,
@@ -159,7 +159,7 @@ export class DartCollectionService {
 
     logger.info(`[DART Collection] 기업별 수집 완료: ${corpCode} - 총 ${allDisclosures.length}건 (${pageNo - 1}페이지 처리)`)
     return allDisclosures
-  }
+  }*/
 
   /**
    * Fear & Greed 관련 공시 필터링 (D 타입 전용으로 단순화)
@@ -273,6 +273,27 @@ export class DartCollectionService {
   }
 
   /**
+   * 데이터 필터링 조건 확인 (Unknown Company 및 0 값 필터링)
+   */
+  private static shouldFilterData(data: any): boolean {
+    // corpName이 'Unknown Company'인 경우 필터링
+    if (data.majorHoldingCorpName === 'Unknown Company' || 
+        data.corpName === 'Unknown Company') {
+      return true
+    }
+    
+    // changeRatio와 changeShares가 모두 0인 경우 필터링
+    const changeRatio = parseFloat(data.majorHoldingChangeRatio || data.changeRatio || '0')
+    const changeShares = parseFloat(data.majorHoldingChangeShares || data.changeAmount || '0')
+    
+    if (changeRatio === 0 && changeShares === 0) {
+      return true
+    }
+    
+    return false
+  }
+
+  /**
    * 상세 지분공시 데이터 처리 (신규 기능)
    */
   private static async processStockDisclosureDetails(stockDisclosures: DartDisclosureData[]): Promise<void> {
@@ -305,12 +326,9 @@ export class DartCollectionService {
 
       // 유효한 데이터만 필터링 (undefined 값 제외)
       const validDetailData = detailData
-        .filter(data => 
-          data.receiptNumber && 
-          (data.beforeHolding !== null || data.afterHolding !== null)
-        )
+        .filter(data => data.receiptNumber && data.additionalOwnership )
         .map(data => {
-          const result: any = {
+          let result: any = {
             receiptNumber: data.receiptNumber,
             disclosureType: data.disclosureType,
             changeReason: data.changeReason,
@@ -339,10 +357,25 @@ export class DartCollectionService {
             
             // 대량보유 데이터 요약
             if (data.additionalOwnership.majorHoldings?.length > 0) {
-              result.topMajorHolder = data.additionalOwnership.majorHoldings[0]?.reporter
+              const topMajorHolding = data.additionalOwnership.majorHoldings[0]
+              result.topMajorHolder = topMajorHolding?.repror || topMajorHolding?.reporter
               result.maxMajorHoldingRate = Math.max(
                 ...data.additionalOwnership.majorHoldings.map(h => parseFloat(h.stkrt || '0'))
               )
+              
+              // 새로운 필드들 추가
+              result.majorHoldingReceiptNumber = topMajorHolding?.rcept_no
+              result.majorHoldingReceiptDate = topMajorHolding?.rcept_dt
+              result.majorHoldingCorpCode = topMajorHolding?.corp_code
+              result.majorHoldingCorpName = topMajorHolding?.corp_name
+              result.majorHoldingReportType = topMajorHolding?.report_tp
+              result.majorHoldingShares = topMajorHolding?.stkqy
+              result.majorHoldingChangeShares = topMajorHolding?.stkqy_irds
+              result.majorHoldingRatio = topMajorHolding?.stkrt
+              result.majorHoldingChangeRatio = topMajorHolding?.stkrt_irds
+              result.majorHoldingTransactionShares = topMajorHolding?.ctr_stkqy
+              result.majorHoldingTransactionRatio = topMajorHolding?.ctr_stkrt
+              result.majorHoldingReportReason = topMajorHolding?.report_resn
             }
             
             // 임원 소유현황 요약
@@ -357,9 +390,31 @@ export class DartCollectionService {
           return result
         })
 
-      if (validDetailData.length > 0) {
+      // 필터링 조건에 따라 데이터 제외 (Unknown Company 및 0 값 필터링)
+      const filteredData = validDetailData.filter(data => !this.shouldFilterData(data))
+      
+      if (filteredData.length !== validDetailData.length) {
+        logger.info(`[DART Collection] 필터링: ${validDetailData.length} -> ${filteredData.length} 건 (Unknown Company 및 0 값 제외)`)
+      }
+
+      // receiptNumber 기준으로 중복 제거 (첫 번째 항목만 유지)
+      const deduplicatedData = new Map<string, any>()
+      
+      for (const data of filteredData) {
+        const receiptNumber = data.receiptNumber
+        if (!deduplicatedData.has(receiptNumber)) {
+          deduplicatedData.set(receiptNumber, data)
+        }
+        // 중복된 경우 무시 (첫 번째 항목만 유지)
+      }
+      
+      const uniqueDetailData = Array.from(deduplicatedData.values())
+      
+      if (uniqueDetailData.length > 0) {
+        logger.info(`[DART Collection] 중복 제거: ${filteredData.length} -> ${uniqueDetailData.length} 건`)
+        
         // 배치로 상세 지분공시 데이터 저장
-        const result = await DartDisclosureRepository.saveBatchStockDisclosureDetails(validDetailData)
+        const result = await DartDisclosureRepository.saveBatchStockDisclosureDetails(uniqueDetailData)
         logger.info(`[DART Collection] 상세 지분공시 저장 완료: ${result.saved}건 생성, ${result.updated}건 업데이트, ${result.failed}건 실패`)
       } else {
         logger.info('[DART Collection] 처리할 유효한 상세 지분공시 데이터 없음')

@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 
-import { DartCollectionService } from '@/services/collectors/DartCollectionService'
+import { DartCollectionService } from '@/collectors/dartCollectionService'
 import { DartApiClient } from '@/clients/dart/DartApiClient'
 // import { DartBatchService } from '@/services/core/dartBatchService' // Updated path
 import { logger } from '@/utils/common/logger'

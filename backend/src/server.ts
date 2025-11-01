@@ -17,15 +17,17 @@ import fearGreedRoutes from '@/routes/fearGreedPublic';
 import dataRoutes from '@/routes/marketData';
 import adminRoutes from '@/routes/adminManagement';
 import dartRoutes from '@/routes/dartApiSimple';
+import domainRoutes from '@/routes/domainApi';
+import messagingRoutes from '@/routes/messagingApi';
+import telegramWebhookRoutes from '@/routes/telegramWebhook';
 
 // 미들웨어 import
 import { errorHandler } from '@/middleware/errorMiddleware';
-import { rateLimiter } from '@/middleware/rateLimitMiddleware';
 import { requestLogger } from '@/middleware/loggingMiddleware';
 
 // 유틸리티 import
 import { logger } from '@/utils/common/logger';
-import { startDataCollectionScheduler } from '@/services/infrastructure/scheduler';
+import { ServiceRegistry } from '@/services/domain/ServiceRegistry';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,9 +71,6 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 }
 app.use(requestLogger);
-
-// Rate limiting
-app.use(rateLimiter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -132,6 +131,9 @@ app.use('/api/fear-greed', fearGreedRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/dart', dartRoutes);
+app.use('/api/domain', domainRoutes);
+app.use('/api/messaging', messagingRoutes);
+app.use('/api/telegram', telegramWebhookRoutes);
 
 // 기본 라우트
 app.get('/', (req, res) => {
@@ -147,6 +149,9 @@ app.get('/', (req, res) => {
       marketData: '/api/data',
       adminPanel: '/api/admin',
       dartData: '/api/dart',
+      domainServices: '/api/domain',
+      messaging: '/api/messaging',
+      telegramWebhook: '/api/telegram',
       health: '/health'
     },
     environment: process.env.NODE_ENV || 'development',
@@ -174,24 +179,48 @@ server.listen(PORT, () => {
   console.log(`📊 환경: ${process.env.NODE_ENV}`);
   console.log(`🌐 CORS 허용 도메인: ${process.env.ALLOWED_ORIGINS}`);
   
-  // 데이터 수집 스케줄러 시작
+  // 도메인 서비스 레지스트리 초기화
   if (process.env.NODE_ENV === 'production') {
-    startDataCollectionScheduler();
-    console.log('📅 데이터 수집 스케줄러가 시작되었습니다.');
+    ServiceRegistry.initialize()
+      .then(() => {
+        console.log('📅 도메인 서비스 레지스트리가 초기화되었습니다.');
+        console.log('📊 등록된 서비스:', ServiceRegistry.getRegisteredServices());
+      })
+      .catch((error) => {
+        console.error('❌ 도메인 서비스 초기화 실패:', error);
+      });
   }
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('SIGTERM 신호를 받았습니다. 서버를 종료합니다...');
+  
+  // 도메인 서비스 종료
+  try {
+    await ServiceRegistry.shutdown();
+    console.log('📅 도메인 서비스가 정상적으로 종료되었습니다.');
+  } catch (error) {
+    console.error('❌ 도메인 서비스 종료 중 오류:', error);
+  }
+  
   server.close(() => {
     console.log('서버가 정상적으로 종료되었습니다.');
     process.exit(0);
   });
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('SIGINT 신호를 받았습니다. 서버를 종료합니다...');
+  
+  // 도메인 서비스 종료
+  try {
+    await ServiceRegistry.shutdown();
+    console.log('📅 도메인 서비스가 정상적으로 종료되었습니다.');
+  } catch (error) {
+    console.error('❌ 도메인 서비스 종료 중 오류:', error);
+  }
+  
   server.close(() => {
     console.log('서버가 정상적으로 종료되었습니다.');
     process.exit(0);

@@ -8,7 +8,7 @@ const routes: RouteRecordRaw[] = [
       { 
         path: '', 
         component: () => import('pages/IndexPage.vue'),
-        meta: { title: 'KOSPI Fear & Greed Index' }
+        meta: { title: 'investand' }
       },
       { 
         path: 'history', 
@@ -51,24 +51,6 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-dashboard',
         component: () => import('pages/admin/DashboardPage.vue'),
         meta: { title: 'Admin Dashboard' }
-      },
-      {
-        path: 'data-collection',
-        name: 'admin-data-collection',
-        component: () => import('pages/admin/DataCollectionPage.vue'),
-        meta: { title: 'Data Collection Management' }
-      },
-      {
-        path: 'system-monitoring',
-        name: 'admin-system-monitoring',
-        component: () => import('pages/admin/SystemMonitoringPage.vue'),
-        meta: { title: 'System Monitoring' }
-      },
-      {
-        path: 'calculator',
-        name: 'admin-calculator',
-        component: () => import('pages/admin/CalculatorPage.vue'),
-        meta: { title: 'Calculator Management' }
       },
       {
         path: 'dart',

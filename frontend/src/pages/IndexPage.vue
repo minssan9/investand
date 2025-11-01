@@ -12,7 +12,7 @@
         <!-- Header Section -->
         <div class="q-pa-md">
           <div class="text-h3 text-center q-mb-md">
-            🇰🇷 KOSPI Fear & Greed Index
+            🇰🇷 investand
           </div>
           <div class="text-h6 text-center text-grey-7 q-mb-xl">
             한국 주식시장의 투자자 심리를 실시간으로 확인하세요

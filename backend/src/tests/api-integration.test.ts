@@ -1,5 +1,5 @@
 import request from 'supertest';
-import app from './app-setup'; // Test app setup
+import app from '@/tests/app-setup'; // Test app setup
 
 describe('API Integration Tests', () => {
   // Test Fear & Greed API endpoints

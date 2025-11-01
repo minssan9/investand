@@ -1,5 +1,9 @@
-import { BaseRepository } from '../core/BaseRepository'
-import type { DartDisclosureData } from '@/types/collectors/dartTypes'
+import { BaseRepository } from '@/repositories/core/BaseRepository'
+import type { 
+  DartDisclosureData, 
+  DartStockDisclosureBatchData, 
+  DartStockDisclosureBatchResult 
+} from '@/types/collectors/dartTypes'
 
 /**
  * DART 공시정보 리포지토리
@@ -311,209 +315,211 @@ export class DartDisclosureRepository extends BaseRepository {
   // ================================
 
   /**
-   * 상세 지분공시 데이터 저장 (개선된 버전)
+   * 데이터 필터링 조건 확인 (Unknown Company 및 0 값 필터링)
    */
-  static async saveStockDisclosureDetail(data: {
-    receiptNumber: string
-    disclosureType: string
-    beforeHolding?: number
-    afterHolding?: number
-    changeAmount?: number
-    changeReason?: string
-    reporterName?: string
-    isSignificant: boolean
-    marketImpact?: string
-    impactScore?: number
-  }): Promise<void> {
-    try {
-      // receiptNumber에서 날짜 추출 (YYYYMMDD 형식)
-      const dateStr = data.receiptNumber.substring(0, 8)
-      const reportDate = new Date(`${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`)
-      
-      const corpCode = data.receiptNumber.substring(8, 16) || data.receiptNumber.substring(0, 8)
-      const reporterName = data.reporterName || 'Unknown'
-      
-      // 중복 검증: receiptNumber 기준으로 확인 (더 정확한 방식)
-      const existingByReceiptNumber = await this.prisma.dartStockHolding.findFirst({
-        where: {
-          AND: [
-            { corpCode },
-            { reportDate },
-            { reporterName },
-            {
-              OR: [
-                { changeShares: BigInt(data.changeAmount || 0) },
-                { holdingRatio: data.afterHolding || 0 }
-              ]
-            }
-          ]
-        }
-      })
-      
-      if (existingByReceiptNumber) {
-        // 기존 레코드 업데이트 (변경된 정보만)
-        const updateData: any = {}
-        
-        if (data.afterHolding !== undefined) {
-          updateData.holdingRatio = data.afterHolding
-        }
-        
-        if (data.beforeHolding && data.afterHolding) {
-          updateData.changeRatio = data.afterHolding - data.beforeHolding
-        }
-        
-        if (data.changeAmount !== undefined) {
-          updateData.changeShares = BigInt(data.changeAmount)
-        }
-        
-        if (data.changeReason) {
-          updateData.changeReason = data.changeReason
-        }
-        
-        if (Object.keys(updateData).length > 0) {
-          await this.prisma.dartStockHolding.update({
-            where: { id: existingByReceiptNumber.id },
-            data: updateData
-          })
-        }
-        
-        this.logSuccess('상세 지분공시 업데이트', data.receiptNumber)
-      } else {
-        // 새 레코드 생성
-        await this.prisma.dartStockHolding.create({
-          data: {
-            corpCode,
-            corpName: await this.getCorpNameFromCode(corpCode), // Helper 함수로 기업명 조회
-            stockCode: null,
-            reportDate,
-            reporterName,
-            holdingRatio: data.afterHolding || 0,
-            holdingShares: BigInt(Math.floor((data.afterHolding || 0) * 1000000)), // 추정 계산
-            changeRatio: data.beforeHolding && data.afterHolding ? 
-              data.afterHolding - data.beforeHolding : 0,
-            changeShares: BigInt(data.changeAmount || 0),
-            changeReason: data.changeReason || 'Unknown'
-          }
-        })
-        
-        this.logSuccess('상세 지분공시 생성', data.receiptNumber)
-      }
-      
-    } catch (error) {
-      this.logError('상세 지분공시 저장', data.receiptNumber, error)
-      throw error
+  private static shouldFilterData(data: any): boolean {
+    // corpName이 'Unknown Company'인 경우 필터링
+    if (data.majorHoldingCorpName === 'Unknown Company' || 
+        data.corpName === 'Unknown Company') {
+      return true
     }
+    
+    // changeRatio와 changeShares가 모두 0인 경우 필터링
+    const changeRatio = parseFloat(data.majorHoldingChangeRatio || data.changeRatio || '0')
+    const changeShares = parseFloat(data.majorHoldingChangeShares || data.changeAmount || '0')
+    
+    if (changeRatio === 0 && changeShares === 0) {
+      return true
+    }
+    
+    return false
   }
 
   /**
-   * 배치 지분공시 데이터 저장 (성능 최적화)
+   * 통합 지분공시 배치 저장 (단일/배치 처리 통합, 중복 제거 최적화)
    */
-  static async saveBatchStockDisclosureDetails(dataList: Array<{
-    receiptNumber: string
-    disclosureType: string
-    beforeHolding?: number
-    afterHolding?: number
-    changeAmount?: number
-    changeReason?: string
-    reporterName?: string
-    isSignificant: boolean
-    marketImpact?: string
-    impactScore?: number
-    // 추가 소유현황 관련 필드
-    majorHoldingsCount?: number
-    executiveHoldingsCount?: number
-    totalAnalysisScore?: number
-    topMajorHolder?: string
-    maxMajorHoldingRate?: number
-    topExecutiveHolder?: string
-    maxExecutiveHoldingRate?: number
-  }>): Promise<{ saved: number, updated: number, failed: number }> {
-    let saved = 0, updated = 0, failed = 0
+  static async saveBatchStockDisclosureDetails(
+    dataList: DartStockDisclosureBatchData | DartStockDisclosureBatchData[]
+  ): Promise<DartStockDisclosureBatchResult> {
+    const startTime = Date.now()
+    const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     
+    // 단일 데이터도 배열로 변환하여 통일된 처리
+    const inputData = Array.isArray(dataList) ? dataList : [dataList]
+    
+    const result: DartStockDisclosureBatchResult = {
+      success: false,
+      transactionId,
+      operationsCompleted: 0,
+      operationsFailed: 0,
+      saved: 0,
+      updated: 0,
+      failed: 0,
+      errors: [],
+      processingTime: 0
+    }
+
     try {
-      // 기업명 캐시 구축
-      const corpCodes = [...new Set(dataList.map(d => 
-        d.receiptNumber.substring(8, 16) || d.receiptNumber.substring(0, 8)
-      ))]
+      // 1. 중복 제거: receiptNumber 기준으로 Map 사용 (첫 번째 항목만 유지)
+      const deduplicatedData = new Map<string, DartStockDisclosureBatchData>()
+      
+      for (const data of inputData) {
+        const receiptNumber = data.majorHoldingReceiptNumber || data.receiptNumber
+        if (!deduplicatedData.has(receiptNumber)) {
+          deduplicatedData.set(receiptNumber, data)
+        }
+        // 중복된 경우 무시 (첫 번째 항목만 유지)
+      }
+      
+      const uniqueDataList = Array.from(deduplicatedData.values())
+      console.log(`[DB] 중복 제거: ${inputData.length} -> ${uniqueDataList.length} 건`)
+      
+      // 2. 필터링 조건에 따라 데이터 제외 (Unknown Company 및 0 값 필터링)
+      const filteredDataList = uniqueDataList.filter(data => !this.shouldFilterData(data))
+      
+      if (filteredDataList.length !== uniqueDataList.length) {
+        console.log(`[DB] 필터링: ${uniqueDataList.length} -> ${filteredDataList.length} 건 (Unknown Company 및 0 값 제외)`)
+      }
+      
+      // 3. 기업 정보 캐시 구축 (필터링된 데이터 기준)
+      const corpCodes = new Set<string>()
+      for (const data of filteredDataList) {
+        const corpCode = data.majorHoldingCorpCode || 
+          data.receiptNumber.substring(8, 16) || 
+          data.receiptNumber.substring(0, 8)
+        corpCodes.add(corpCode)
+      }
       
       const companies = await this.prisma.dartCompany.findMany({
-        where: { corpCode: { in: corpCodes } },
+        where: { corpCode: { in: Array.from(corpCodes) } },
         select: { corpCode: true, corpName: true }
       })
       
-      const corpNameCache = companies.reduce((acc, c) => {
-        acc[c.corpCode] = c.corpName
-        return acc
-      }, {} as Record<string, string>)
+      const corpNameCache = new Map<string, string>()
+      companies.forEach(c => corpNameCache.set(c.corpCode, c.corpName))
       
-      // 기존 데이터 조회 (중복 방지)
+      // 4. 기존 데이터 조회 (필터링된 receiptNumber 기준)
+      const receiptNumbers = filteredDataList.map(d => d.majorHoldingReceiptNumber || d.receiptNumber)
       const existingRecords = await this.prisma.dartStockHolding.findMany({
-        where: {
-          corpCode: { in: corpCodes }
+        where: { receiptNumber: { in: receiptNumbers } },
+        select: { id: true, receiptNumber: true }
+      })
+      
+      const existingMap = new Map<string, { id: number }>()
+      existingRecords.forEach(record => {
+        if (record.receiptNumber) {
+          existingMap.set(record.receiptNumber, { id: record.id })
         }
       })
       
-      const existingMap = existingRecords.reduce((acc, record) => {
-        const key = `${record.corpCode}-${record.reportDate.toISOString().split('T')[0]}-${record.reporterName}`
-        acc[key] = record
-        return acc
-      }, {} as Record<string, any>)
-      
-      // 배치 처리
-      for (const data of dataList) {
-        try {
-          const dateStr = data.receiptNumber.substring(0, 8)
-          const reportDate = new Date(`${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`)
-          const corpCode = data.receiptNumber.substring(8, 16) || data.receiptNumber.substring(0, 8)
-          const reporterName = data.reporterName || 'Unknown'
-          const key = `${corpCode}-${reportDate.toISOString().split('T')[0]}-${reporterName}`
-          
-          if (existingMap[key]) {
-            // 업데이트
-            await this.prisma.dartStockHolding.update({
-              where: { id: existingMap[key].id },
-              data: {
-                holdingRatio: data.afterHolding || 0,
-                changeRatio: data.beforeHolding && data.afterHolding ? 
-                  data.afterHolding - data.beforeHolding : 0,
-                changeShares: BigInt(data.changeAmount || 0),
-                changeReason: data.changeReason || 'Unknown'
-              }
+      // 5. 배치 처리 (트랜잭션 사용)
+      await this.prisma.$transaction(async (tx) => {
+        const createOperations: any[] = []
+        const updateOperations: any[] = []
+        
+        for (const data of filteredDataList) {
+          try {
+            const receiptNumber = data.majorHoldingReceiptNumber || data.receiptNumber
+            const dateStr = data.receiptNumber.substring(0, 8)
+            const reportDate = new Date(`${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`)
+            const corpCode = data.majorHoldingCorpCode || 
+              data.receiptNumber.substring(8, 16) || 
+              data.receiptNumber.substring(0, 8)
+            const reporterName = data.topMajorHolder || data.reporterName || 'Unknown'
+            
+            // 필수 필드들 설정
+            const stockCode = data.majorHoldingCorpCode ? 
+              await this.getStockCodeFromCorpCode(data.majorHoldingCorpCode) : null
+            const finalReportDate = data.majorHoldingReceiptDate ? 
+              new Date(data.majorHoldingReceiptDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')) : reportDate
+            const changeReason = data.majorHoldingReportReason || data.changeReason || 'Unknown'
+            const corpName = data.majorHoldingCorpName || corpNameCache.get(corpCode) || 'Unknown Company'
+            
+            const recordData = {
+              receiptNumber: receiptNumber,
+              receiptDate: finalReportDate,
+              corpCode: corpCode,
+              corpName: corpName,
+              stockCode: stockCode,
+              reportType: data.majorHoldingReportType || '일반',
+              reporterName: reporterName,
+              holdingShares: data.majorHoldingShares || String(Math.floor((data.afterHolding || 0) * 1000000)),
+              changeShares: data.majorHoldingChangeShares || String(data.changeAmount || 0),
+              holdingRatio: data.majorHoldingRatio || String(data.afterHolding || 0),
+              changeRatio: data.majorHoldingChangeRatio || String(data.beforeHolding && data.afterHolding ? 
+                data.afterHolding - data.beforeHolding : 0),
+              majorTransactionShares: data.majorHoldingTransactionShares || null,
+              majorTransactionRatio: data.majorHoldingTransactionRatio || null,
+              reportReason: data.majorHoldingReportReason || null,
+              changeReason: changeReason,
+              reportDate: finalReportDate,
+              isu_exctv_ofcps: 'N',
+              isu_exctv_rgist_at: 'N',
+              isu_main_shrholdr: 'N'
+            }
+            
+            if (existingMap.has(receiptNumber)) {
+              // 업데이트 작업
+              updateOperations.push({
+                where: { id: existingMap.get(receiptNumber)!.id },
+                data: recordData
+              })
+            } else {
+              // 생성 작업
+              createOperations.push({
+                ...recordData,
+                createdAt: new Date()
+              })
+            }
+            
+            result.operationsCompleted++
+          } catch (itemError) {
+            result.operationsFailed++
+            result.failed++
+            result.errors.push({
+              receiptNumber: data.receiptNumber,
+              error: itemError instanceof Error ? itemError.message : String(itemError)
             })
-            updated++
-          } else {
-            // 생성
-            await this.prisma.dartStockHolding.create({
-              data: {
-                corpCode,
-                corpName: corpNameCache[corpCode] || 'Unknown Company',
-                stockCode: null,
-                reportDate,
-                reporterName,
-                holdingRatio: data.afterHolding || 0,
-                holdingShares: BigInt(Math.floor((data.afterHolding || 0) * 1000000)),
-                changeRatio: data.beforeHolding && data.afterHolding ? 
-                  data.afterHolding - data.beforeHolding : 0,
-                changeShares: BigInt(data.changeAmount || 0),
-                changeReason: data.changeReason || 'Unknown'
-              }
-            })
-            saved++
+            this.logError('배치 지분공시 항목 처리', data.receiptNumber, itemError)
           }
-        } catch (itemError) {
-          this.logError('배치 지분공시 항목 저장', data.receiptNumber, itemError)
-          failed++
         }
-      }
+        
+        // 5. 배치 실행
+        if (updateOperations.length > 0) {
+          for (const updateOp of updateOperations) {
+            await tx.dartStockHolding.update(updateOp)
+            result.updated++
+          }
+        }
+        
+        if (createOperations.length > 0) {
+          await tx.dartStockHolding.createMany({
+            data: createOperations,
+            skipDuplicates: true
+          })
+          result.saved += createOperations.length
+        }
+      })
       
-      this.logBatchResult('배치 지분공시 저장', saved + updated, dataList.length)
+      result.success = result.operationsFailed === 0
+      result.processingTime = Date.now() - startTime
+      
+      this.logBatchResult('통합 지분공시 배치 저장', result.operationsCompleted, uniqueDataList.length)
+      console.log(`[DB] 처리 시간: ${result.processingTime}ms, 저장: ${result.saved}, 업데이트: ${result.updated}, 실패: ${result.failed}`)
       
     } catch (error) {
-      this.logError('배치 지분공시 저장', `${dataList.length}건`, error)
+      result.success = false
+      result.processingTime = Date.now() - startTime
+      result.errors.push({
+        receiptNumber: 'BATCH_ERROR',
+        error: error instanceof Error ? error.message : String(error)
+      })
+      
+      this.logError('통합 지분공시 배치 저장', `${inputData.length}건`, error)
       throw error
     }
     
-    return { saved, updated, failed }
+    return result
   }
 
   /**
@@ -540,18 +546,26 @@ export class DartDisclosureRepository extends BaseRepository {
     try {
       return await this.prisma.dartStockHolding.findMany({
         where: {
-          reportDate: {
-            gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-          },
-          OR: [
-            { changeRatio: { gte: 5.0 } }, // 5% 이상 증가
-            { changeRatio: { lte: -5.0 } }, // 5% 이상 감소
-            { holdingRatio: { gte: 5.0 } } // 5% 이상 보유
+          AND: [
+            {
+              OR: [
+                { reportDate: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } },
+                { receiptDate: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } }
+              ]
+            },
+            {
+              OR: [
+                { changeRatio: { gte: '5.0' } }, // 5% 이상 증가
+                { changeRatio: { lte: '-5.0' } }, // 5% 이상 감소
+                { holdingRatio: { gte: '5.0' } } // 5% 이상 보유
+              ]
+            }
           ]
         },
-        orderBy: {
-          reportDate: 'desc'
-        }
+        orderBy: [
+          { receiptDate: 'desc' },
+          { reportDate: 'desc' }
+        ]
       })
     } catch (error) {
       this.logError('중요 소유권 변동 조회', `${days}일`, error)
@@ -575,13 +589,15 @@ export class DartDisclosureRepository extends BaseRepository {
       const trends = await this.prisma.dartStockHolding.findMany({
         where: {
           corpCode,
-          reportDate: {
-            gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-          }
+          OR: [
+            { reportDate: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } },
+            { receiptDate: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } }
+          ]
         },
-        orderBy: {
-          reportDate: 'desc'
-        }
+        orderBy: [
+          { receiptDate: 'desc' },
+          { reportDate: 'desc' }
+        ]
       })
 
       const totalChanges = trends.length
@@ -604,6 +620,117 @@ export class DartDisclosureRepository extends BaseRepository {
     } catch (error) {
       this.logError('소유권 트렌드 분석', corpCode, error)
       throw error
+    }
+  }
+
+  /**
+   * 기업 코드로 주식 코드 조회
+   */
+  private static async getStockCodeFromCorpCode(corpCode: string): Promise<string | null> {
+    try {
+      const company = await this.prisma.dartCompany.findUnique({
+        where: { corpCode },
+        select: { stockCode: true }
+      })
+      return company?.stockCode || null
+    } catch (error) {
+      this.logError('주식 코드 조회', corpCode, error)
+      return null
+    }
+  }
+
+  /**
+   * 주식 보유현황 데이터 조회
+   */
+  static async getStockHoldings(params: {
+    corpCode?: string
+    startDate: string
+    endDate: string
+    reporterName?: string
+    page: number
+    limit: number
+  }): Promise<any[]> {
+    try {
+      const { corpCode, startDate, endDate, reporterName, page, limit } = params
+      
+      const whereClause: any = {
+        OR: [
+          { receiptDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+          { reportDate: { gte: new Date(startDate), lte: new Date(endDate) } }
+        ]
+      }
+
+      // 기업 코드 필터링
+      if (corpCode) {
+        whereClause.corpCode = corpCode
+      }
+
+      // 보고자명 필터링
+      if (reporterName) {
+        whereClause.reporterName = { contains: reporterName }
+      }
+
+      const holdings = await this.prisma.dartStockHolding.findMany({
+        where: whereClause,
+        orderBy: [
+          { receiptDate: 'desc' },
+          { reportDate: 'desc' }
+        ],
+        skip: (page - 1) * limit,
+        take: limit
+      })
+
+      return holdings
+    } catch (error) {
+      this.logError('주식 보유현황 조회', JSON.stringify(params), error)
+      return []
+    }
+  }
+
+  /**
+   * 장내매수로 인한 지분증가 건 조회 (일일 리포트용)
+   * @param date - 조회할 날짜 (YYYY-MM-DD 형식)
+   * @returns 필터링된 주식 보유 현황 목록
+   */
+  static async getMarketBuyIncreaseHoldings(date: string): Promise<any[]> {
+    try {
+      const targetDate = new Date(date)
+      const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0))
+      const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999))
+
+      const holdings = await this.prisma.dartStockHolding.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { receiptDate: { gte: startOfDay, lte: endOfDay } },
+                { reportDate: { gte: startOfDay, lte: endOfDay } }
+              ]
+            },
+            {
+              reportReason: {
+                contains: '장내매수로 인한 지분증가'
+              }
+            }
+          ]
+        },
+        orderBy: [
+          { changeRatio: 'desc' },
+          { receiptDate: 'desc' }
+        ]
+      })
+
+      // changeRatio가 0보다 큰 항목만 필터링 (String 타입이므로 parseFloat 사용)
+      const filteredHoldings = holdings.filter(holding => {
+        const changeRatio = parseFloat(holding.changeRatio || '0')
+        return changeRatio > 0
+      })
+
+      this.logSuccess('장내매수 지분증가 조회', `${filteredHoldings.length}건`)
+      return filteredHoldings
+    } catch (error) {
+      this.logError('장내매수 지분증가 조회', date, error)
+      return []
     }
   }
 }

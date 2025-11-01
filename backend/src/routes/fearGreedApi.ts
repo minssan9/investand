@@ -1,7 +1,7 @@
 import express from 'express'
 import { DatabaseService } from '@/services/core/databaseService'
 import { FearGreedCalculator } from '@/services/core/fearGreedCalculator'
-import { KrxCollectionService } from '@/services/collectors/KrxCollectionService'
+import { KrxCollectionService } from '@/collectors/krxCollectionService'
 import { MarketDataRepository } from '@/repositories/market/MarketDataRepository'
 import { FearGreedIndexRepository } from '@/repositories/analytics/FearGreedIndexRepository'
 import { BOKCollector } from '@/collectors/financial/bokCollector'

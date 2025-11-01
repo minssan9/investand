@@ -3,7 +3,7 @@
     <div class="row">
       <div class="col-12">
         <div class="text-h4 q-mb-md">
-          ℹ️ About KOSPI Fear & Greed Index
+          ℹ️ About investand
         </div>
         <div class="text-subtitle1 text-grey-7 q-mb-xl">
           한국 주식시장 투자자 심리 지수에 대한 정보

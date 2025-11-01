@@ -1,4 +1,4 @@
-import { logger } from './logger'
+import { logger } from '@/utils/common/logger'
 
 export interface RetryOptions {
   maxAttempts: number

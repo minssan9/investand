@@ -1,5 +1,5 @@
-import { KRXCollector } from '../collectors/krxCollector'
-import { BOKCollector } from '../collectors/bokCollector' 
+import { KRXCollector } from '@/collectors/krxCollector'
+import { BOKCollector } from '@/collectors/bokCollector' 
 import { FearGreedCalculator } from '@/services/fearGreedCalculator'
 
 /**

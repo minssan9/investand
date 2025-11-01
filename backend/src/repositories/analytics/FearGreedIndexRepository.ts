@@ -1,4 +1,4 @@
-import { BaseRepository } from '../core/BaseRepository'
+import { BaseRepository } from '@/repositories/core/BaseRepository'
 import type { FearGreedResult } from '@/services/core/fearGreedCalculator'
 
 /**

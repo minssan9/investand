@@ -1,5 +1,5 @@
 import { FearGreedCalculator } from '@/services/fearGreedCalculator'
-import { formatDate } from '../utils/dateUtils'
+import { formatDate } from '@/utils/dateUtils'
 
 /**
  * 최종 시스템 테스트

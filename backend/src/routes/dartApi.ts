@@ -1,9 +1,8 @@
 import express from 'express'
-import { DartCollectionService } from '@/services/collectors/DartCollectionService'
+import { DartCollectionService } from '@/collectors/dartCollectionService'
 import { DartApiClient } from '@/clients/dart/DartApiClient'
-import { DartBatchService } from '@/services/core/dartBatchService'
-import adminAuth from '../middleware/authMiddleware'
-import { rateLimiter } from '../middleware/rateLimitMiddleware'
+import { ServiceRegistry } from '@/services/domain/ServiceRegistry'
+import adminAuth from '@/middleware/authMiddleware'
 import { logger } from '@/utils/common/logger'
 
 const router = express.Router()
@@ -27,7 +26,7 @@ router.use('/disclosures', (req, res, next) => {
  * GET /api/dart/disclosures
  * 공시 데이터 조회
  */
-router.get('/disclosures', async (req, res): Promise<void> => {
+router.get('/disclosures', async (req, res) => {
   try {
     const {
       startDate,
@@ -77,7 +76,7 @@ router.get('/disclosures', async (req, res): Promise<void> => {
     // 감정 분석 필터링은 제거됨 (D 타입 전용 단순화)
     const filteredDisclosures = filteredByCorpCode
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         disclosures: filteredDisclosures,
@@ -106,10 +105,82 @@ router.get('/disclosures', async (req, res): Promise<void> => {
 })
 
 /**
+ * GET /api/dart/stock-holdings
+ * 주식 보유현황 데이터 조회
+ */
+router.get('/stock-holdings', async (req, res) => {
+  try {
+    const {
+      corpCode,
+      startDate,
+      endDate,
+      reporterName,
+      page = 1,
+      limit = 50
+    } = req.query
+
+    // 파라미터 검증
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: 'startDate와 endDate는 필수 파라미터입니다.',
+        example: '?startDate=2024-01-01&endDate=2024-01-31&corpCode=00126380'
+      })
+    }
+
+    // 날짜 형식 검증
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRegex.test(startDate as string) || !dateRegex.test(endDate as string)) {
+      return res.status(400).json({
+        error: '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)',
+        startDate,
+        endDate
+      })
+    }
+
+    // DartDisclosureRepository를 사용하여 주식 보유현황 데이터 조회
+    const { DartDisclosureRepository } = await import('@/repositories/dart/DartDisclosureRepository')
+    
+    const holdings = await DartDisclosureRepository.getStockHoldings({
+      corpCode: corpCode as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+      reporterName: reporterName as string,
+      page: parseInt(page as string),
+      limit: parseInt(limit as string)
+    })
+
+    return res.json({
+      success: true,
+      data: {
+        holdings,
+        total: holdings.length,
+        params: {
+          corpCode: corpCode || null,
+          startDate,
+          endDate,
+          reporterName: reporterName || null,
+          page: parseInt(page as string),
+          limit: Math.min(parseInt(limit as string), 100)
+        }
+      }
+    })
+
+    logger.info(`[DART API] 주식 보유현황 조회: ${startDate} ~ ${endDate}, ${holdings.length}건`)
+
+  } catch (error) {
+    logger.error('[DART API] 주식 보유현황 조회 실패:', error)
+    return res.status(500).json({
+      error: '주식 보유현황 데이터 조회 중 오류가 발생했습니다.',
+      message: (error as Error).message
+    })
+  }
+})
+
+/**
  * GET /api/dart/companies
  * 기업 정보 조회
  */
-router.get('/companies', async (req, res): Promise<void> => {
+router.get('/companies', async (req, res) => {
   try {
     const { corpCode } = req.query
 
@@ -127,7 +198,7 @@ router.get('/companies', async (req, res): Promise<void> => {
     })
   } catch (error) {
     logger.error('[DART API] 기업 정보 조회 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '기업 정보 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -138,7 +209,7 @@ router.get('/companies', async (req, res): Promise<void> => {
  * GET /api/dart/financial
  * 재무 정보 조회
  */
-router.get('/financial', async (req, res): Promise<void> => {
+router.get('/financial', async (req, res) => {
   try {
     const { corpCode, businessYear, reportCode = '11011', fsDiv = 'OFS' } = req.query
 
@@ -162,7 +233,7 @@ router.get('/financial', async (req, res): Promise<void> => {
     })
   } catch (error) {
     logger.error('[DART API] 재무 정보 조회 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '재무 정보 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -178,7 +249,7 @@ router.get('/kospi200', async (req, res) => {
     // TODO: Implement getKOSPI200CorpCodes in DartCollectionService  
     const corpCodes: string[] = [] // Placeholder until implemented
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         corpCodes,
@@ -191,7 +262,7 @@ router.get('/kospi200', async (req, res) => {
 
   } catch (error) {
     logger.error('[DART API] KOSPI 200 조회 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: 'KOSPI 200 목록 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -204,7 +275,7 @@ router.get('/kospi200', async (req, res) => {
  * POST /api/dart/batch/daily
  * 일별 공시 데이터 배치 수집 예약 (관리자 전용)
  */
-router.post('/batch/daily', adminAuth, async (req, res): Promise<void> => {
+router.post('/batch/daily', adminAuth.requireAdmin, async (req, res) => {
   try {
     const { date, options } = req.body
 
@@ -215,9 +286,13 @@ router.post('/batch/daily', adminAuth, async (req, res): Promise<void> => {
       })
     }
 
-    const jobId = await DartBatchService.scheduleDailyDisclosureCollection(date, options)
+    const jobId = await ServiceRegistry.batchProcessing.scheduleDailyCollection(date, {
+      includeDart: true,
+      includeKrx: false,
+      includeFearGreed: false
+    })
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         jobId,
@@ -229,7 +304,7 @@ router.post('/batch/daily', adminAuth, async (req, res): Promise<void> => {
 
   } catch (error) {
     logger.error('[DART Batch] 일별 배치 예약 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '배치 작업 예약 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -240,7 +315,7 @@ router.post('/batch/daily', adminAuth, async (req, res): Promise<void> => {
  * POST /api/dart/batch/financial
  * 재무 데이터 배치 수집 예약 (관리자 전용)
  */
-router.post('/batch/financial', adminAuth, async (req, res): Promise<void> => {
+router.post('/batch/financial', adminAuth.requireAdmin, async (req, res) => {
   try {
     const { businessYear } = req.body
 
@@ -251,9 +326,13 @@ router.post('/batch/financial', adminAuth, async (req, res): Promise<void> => {
       })
     }
 
-    const jobId = await DartBatchService.scheduleFinancialDataCollection(businessYear)
+    const jobId = await ServiceRegistry.batchProcessing.scheduleHistoricalCollection(
+      `${businessYear}-01-01`,
+      `${businessYear}-12-31`,
+      ['dart']
+    )
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         jobId,
@@ -265,7 +344,7 @@ router.post('/batch/financial', adminAuth, async (req, res): Promise<void> => {
 
   } catch (error) {
     logger.error('[DART Batch] 재무 배치 예약 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '배치 작업 예약 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -276,18 +355,18 @@ router.post('/batch/financial', adminAuth, async (req, res): Promise<void> => {
  * GET /api/dart/batch/status
  * 배치 서비스 상태 조회 (관리자 전용)
  */
-router.get('/batch/status', adminAuth, async (req, res): Promise<void> => {
+router.get('/batch/status', adminAuth.requireAdmin, async (req, res) => {
   try {
-    const status = await DartBatchService.getStatus()
+    const status = ServiceRegistry.batchProcessing.getStatus()
 
-    res.json({
+    return res.json({
       success: true,
       data: status
     })
 
   } catch (error) {
     logger.error('[DART Batch] 상태 조회 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '배치 서비스 상태 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -303,7 +382,7 @@ router.get('/health', async (req, res) => {
     // TODO: Implement checkBatchStatus in DartCollectionService
     const status = { isOperational: true, rateLimit: { remaining: 1000 }, lastError: null } // Placeholder
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         isOperational: status.isOperational,
@@ -315,7 +394,7 @@ router.get('/health', async (req, res) => {
 
   } catch (error) {
     logger.error('[DART Health] 헬스 체크 실패:', error)
-    res.status(503).json({
+    return res.status(503).json({
       success: false,
       error: 'DART 서비스 헬스 체크 실패',
       message: (error as Error).message
@@ -343,14 +422,14 @@ router.get('/stats', async (req, res) => {
       averageResponseTime: 0
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: stats
     })
 
   } catch (error) {
     logger.error('[DART Stats] 통계 조회 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '통계 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
@@ -361,7 +440,7 @@ router.get('/stats', async (req, res) => {
  * POST /api/dart/test
  * DART 수집기 테스트 (개발/테스트 환경 전용)
  */
-router.post('/test', async (req, res): Promise<void> => {
+router.post('/test', async (req, res) => {
   // 프로덕션 환경에서는 접근 차단
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({
@@ -389,7 +468,7 @@ router.post('/test', async (req, res): Promise<void> => {
         result = { isOperational: true, message: '지분공시(D) 전용 시스템 정상 작동' }
     }
 
-    res.json({
+    return res.json({
       success: true,
       testType,
       testDate,
@@ -400,7 +479,7 @@ router.post('/test', async (req, res): Promise<void> => {
 
   } catch (error) {
     logger.error('[DART Test] 테스트 실패:', error)
-    res.status(500).json({
+    return res.status(500).json({
       error: '테스트 실행 중 오류가 발생했습니다.',
       message: (error as Error).message
     })

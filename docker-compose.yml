@@ -15,7 +15,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./logs/nginx:/var/log/nginx
     networks:
-      - kospi-network
+      - investand-network
     depends_on:
       - frontend
       - backend
@@ -44,7 +44,7 @@ services:
     volumes:
       - ./logs/frontend:/var/log/nginx
     networks:
-      - kospi-network
+      - investand-network
     depends_on:
       - backend
     healthcheck:
@@ -76,7 +76,7 @@ services:
     volumes:
       - ./logs/backend:/app/logs
     networks:
-      - kospi-network
+      - investand-network
     depends_on:
       database:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
     volumes:
       - ./logs/scheduler:/app/logs
     networks:
-      - kospi-network
+      - investand-network
     depends_on:
       database:
         condition: service_healthy
@@ -159,20 +159,7 @@ services:
       - ./database/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
       - ./backups:/backups
     networks:
-      - kospi-network
-    healthcheck:
-      test: 
-        - CMD-SHELL
-        - |
-          if [ "${DATABASE_IMAGE:-mysql:8.0}" = "mysql:8.0" ]; then
-            mysqladmin ping -h localhost -u root -p${DATABASE_PASSWORD}
-          else
-            pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}
-          fi
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - investand-network
     deploy:
       resources:
         limits:
@@ -201,7 +188,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - kospi-network
+      - investand-network
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
@@ -225,7 +212,7 @@ services:
       - ./logs:/fluentd/log
       - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
     networks:
-      - kospi-network
+      - investand-network
     deploy:
       resources:
         limits:
@@ -246,7 +233,7 @@ services:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
-      - kospi-network
+      - investand-network
     profiles:
       - monitoring
 
@@ -262,7 +249,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
     networks:
-      - kospi-network
+      - investand-network
     profiles:
       - monitoring
 
@@ -277,7 +264,7 @@ volumes:
     driver: local
 
 networks:
-  kospi-network:
+  investand-network:
     driver: bridge
     ipam:
       config:

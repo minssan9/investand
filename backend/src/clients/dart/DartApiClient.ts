@@ -8,7 +8,7 @@ import type {
   DartBatchRequest,
   DartDisclosureRawResponse
 } from '@/types/collectors/dartTypes'
-import { DartTypesMapper } from './DartTypesMapper'
+import { DartTypesMapper } from '@/clients/dart/DartTypesMapper'
 import { logger } from '@/utils/common/logger'
 import { retryWithBackoff } from '@/utils/common/retryUtils'
 

@@ -928,18 +928,34 @@ model DartCollectionStat {
 
 model DartStockHolding {
   id                 Int      @id @default(autoincrement())
-  corpCode           String   // 기업 고유번호
+  
+  // Basic identification fields
+  receiptNumber      String?  // 접수번호 (14자리)
+  receiptDate        DateTime? @db.Date // 접수일자 (YYYYMMDD)
+  corpCode           String   // 기업 고유번호 (8자리)
   corpName           String   // 기업명
   stockCode          String?  // 주식코드
-  reportDate         DateTime @db.Date // 보고일자
-  reporterName       String   // 보고자명
-  holdingRatio       Decimal  @db.Decimal(5, 2) // 보유비율 (%)
-  holdingShares      BigInt   // 보유주식수
-  changeRatio        Decimal  @db.Decimal(5, 2) // 변동비율 (%)
-  changeShares       BigInt   // 변동주식수
-  changeReason       String   // 변동사유
+  reportType         String?  // 보고구분 (주식등의 대량보유상황 보고구분)
+  reporterName       String   // 대표보고자
   
-  // Executive holdings fields
+  // Stock holding information
+  holdingShares      String?  // 보유주식등의 수 (stkqy)
+  changeShares       String?  // 보유주식등의 증감 (stkqy_irds)
+  holdingRatio       String?  // 보유비율 (stkrt)
+  changeRatio        String?  // 보유비율 증감 (stkrt_irds)
+  
+  // Major transaction information
+  majorTransactionShares String? // 주요체결 주식등의 수 (ctr_stkqy)
+  majorTransactionRatio  String? // 주요체결 보유비율 (ctr_stkrt)
+  
+  // Report reason
+  reportReason       String?  @db.Text // 보고사유 (report_resn)
+  
+  // Legacy fields for backward compatibility
+  reportDate         DateTime? @db.Date // 기존 reportDate 필드 (호환성)
+  changeReason       String?  // 기존 changeReason 필드 (호환성)
+  
+  // Executive holdings fields (legacy)
   isu_main_shrholdr  String?  // 주요주주 여부
   isu_exctv_rgist_at String?  // 발행회사 임원 등기여부 (Y/N)
   isu_exctv_ofcps    String?  // 발행회사 임원 직책
@@ -947,7 +963,9 @@ model DartStockHolding {
   createdAt          DateTime @default(now())
 
   @@index([corpCode])
-  @@index([reportDate])
+  @@index([receiptNumber])
+  @@index([receiptDate])
+  @@index([reporterName])
   @@map("dart_stock_holdings")
 }
 
