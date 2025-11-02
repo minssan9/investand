@@ -415,7 +415,7 @@ router.post('/send-dart-report', async (req, res) => {
     }
 
     // Get today's date in YYYY-MM-DD format
-    const today: string = new Date().toISOString().split('T')[0]
+    const today: string = new Date().toISOString().split('T')[0]!
 
     // Fetch DART stock holdings data
     const { DartDisclosureRepository } = await import('@/repositories/dart/DartDisclosureRepository')

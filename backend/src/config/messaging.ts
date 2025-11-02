@@ -37,7 +37,7 @@ export interface MessagingConfig {
 export const defaultMessagingConfig: MessagingConfig = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    webhookUrl: process.env.TELEGRAM_WEBHOOK_URL,
+    ...(process.env.TELEGRAM_WEBHOOK_URL && { webhookUrl: process.env.TELEGRAM_WEBHOOK_URL }),
     polling: process.env.NODE_ENV !== 'production'
   },
   notifications: {
@@ -74,7 +74,7 @@ export function getMessagingConfig(): MessagingConfig {
     telegram: {
       ...defaultMessagingConfig.telegram,
       botToken: process.env.TELEGRAM_BOT_TOKEN || defaultMessagingConfig.telegram.botToken,
-      webhookUrl: process.env.TELEGRAM_WEBHOOK_URL || defaultMessagingConfig.telegram.webhookUrl
+      ...(process.env.TELEGRAM_WEBHOOK_URL && { webhookUrl: process.env.TELEGRAM_WEBHOOK_URL })
     }
   }
 }
