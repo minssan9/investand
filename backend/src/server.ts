@@ -49,13 +49,41 @@ if (process.env.HELMET_ENABLED === 'true') {
 }
 
 // CORS 설정
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:8082', 'http://localhost:8083', 'http://localhost:3000'];
-app.use(cors({
-  origin: allowedOrigins,
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()) || [
+  'http://localhost:8082',
+  'http://localhost:8083',
+  'http://localhost:3000',
+  'http://localhost:5173', // Vite default port
+  'http://127.0.0.1:8082',
+  'http://127.0.0.1:8083',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173'
+];
+
+// In development, allow all localhost origins
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In development, allow all localhost origins
+    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-mfa-token', 'x-refresh-token', 'x-mfa-verified']
-}));
+};
+
+app.use(cors(corsOptions));
 
 // 기본 미들웨어
 app.use(compression());

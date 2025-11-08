@@ -112,9 +112,12 @@ router.get('/stock-holdings', async (req, res) => {
   try {
     const {
       corpCode,
+      corpName,
       startDate,
       endDate,
       reporterName,
+      changeReason,
+      reportReason,
       page = 1,
       limit = 50
     } = req.query
@@ -142,23 +145,43 @@ router.get('/stock-holdings', async (req, res) => {
     
     const holdings = await DartDisclosureRepository.getStockHoldings({
       corpCode: corpCode as string,
+      corpName: corpName as string,
       startDate: startDate as string,
       endDate: endDate as string,
       reporterName: reporterName as string,
+      changeReason: changeReason as string,
+      reportReason: reportReason as string,
       page: parseInt(page as string),
       limit: parseInt(limit as string)
+    })
+
+    // 전체 카운트 조회 (필터링된 결과의 실제 개수)
+    const totalCount = await DartDisclosureRepository.getStockHoldingsCount({
+      corpCode: corpCode as string,
+      corpName: corpName as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+      reporterName: reporterName as string,
+      changeReason: changeReason as string,
+      reportReason: reportReason as string
     })
 
     return res.json({
       success: true,
       data: {
         holdings,
-        total: holdings.length,
+        total: totalCount,
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+        totalPages: Math.ceil(totalCount / parseInt(limit as string)),
         params: {
           corpCode: corpCode || null,
+          corpName: corpName || null,
           startDate,
           endDate,
           reporterName: reporterName || null,
+          changeReason: changeReason || null,
+          reportReason: reportReason || null,
           page: parseInt(page as string),
           limit: Math.min(parseInt(limit as string), 100)
         }

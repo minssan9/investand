@@ -78,6 +78,46 @@ export interface DartTestResult {
   data: any
 }
 
+export interface DartStockHolding {
+  id: number
+  receiptNumber?: string
+  receiptDate?: string
+  corpCode: string
+  corpName: string
+  stockCode?: string
+  reportType?: string
+  reporterName: string
+  holdingShares?: string
+  changeShares?: string
+  holdingRatio?: string
+  changeRatio?: string
+  majorTransactionShares?: string
+  majorTransactionRatio?: string
+  reportReason?: string
+  changeReason?: string
+  reportDate?: string
+  createdAt: string
+}
+
+export interface DartStockHoldingsResponse {
+  holdings: DartStockHolding[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+  params: {
+    corpCode?: string | null
+    corpName?: string | null
+    startDate: string
+    endDate: string
+    reporterName?: string | null
+    changeReason?: string | null
+    reportReason?: string | null
+    page: number
+    limit: number
+  }
+}
+
 // DART API Service
 export const dartApi = {
   // 공시 데이터 조회
@@ -268,6 +308,41 @@ export const dartApi = {
     } catch (error) {
       console.error('DART test failed:', error)
       throw new Error('DART 테스트에 실패했습니다.')
+    }
+  },
+
+  // 주식 보유현황 데이터 조회
+  async getStockHoldings(params: {
+    startDate: string
+    endDate: string
+    corpCode?: string
+    corpName?: string
+    reporterName?: string
+    changeReason?: string
+    reportReason?: string
+    page?: number
+    limit?: number
+  }): Promise<DartStockHoldingsResponse> {
+    try {
+      const queryParams = new URLSearchParams()
+      queryParams.append('startDate', params.startDate)
+      queryParams.append('endDate', params.endDate)
+      
+      if (params.corpCode) queryParams.append('corpCode', params.corpCode)
+      if (params.corpName) queryParams.append('corpName', params.corpName)
+      if (params.reporterName) queryParams.append('reporterName', params.reporterName)
+      if (params.changeReason) queryParams.append('changeReason', params.changeReason)
+      if (params.reportReason) queryParams.append('reportReason', params.reportReason)
+      if (params.page) queryParams.append('page', params.page.toString())
+      if (params.limit) queryParams.append('limit', params.limit.toString())
+
+      const response = await api.get<{ success: boolean; data: DartStockHoldingsResponse }>(
+        `/dart/stock-holdings?${queryParams.toString()}`
+      )
+      return response.data.data
+    } catch (error) {
+      console.error('DART stock holdings fetch failed:', error)
+      throw new Error('주식 보유현황 데이터 조회에 실패했습니다.')
     }
   }
 }

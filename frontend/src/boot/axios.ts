@@ -9,7 +9,9 @@ declare module '@vue/runtime-core' {
 }
 
 // API 기본 설정
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+// Development: Use local backend, Production: Use relative path (proxied by nginx)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api')
 
 
 // API 베이스 URL 설정

@@ -3,6 +3,7 @@ import { logger } from '@/utils/common/logger'
 import { DartCollectionService } from '@/collectors/dartCollectionService'
 import { ServiceRegistry } from '@/services/domain/ServiceRegistry'
 import { formatDate } from '@/utils/common/dateUtils'
+import { DartDisclosureRepository } from '@/repositories/dart/DartDisclosureRepository'
 
 const router = express.Router()
 
@@ -95,6 +96,99 @@ router.post('/test', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'DART API 테스트 실패',
+      message: (error as Error).message
+    })
+  }
+})
+
+/**
+ * GET /api/dart/stock-holdings
+ * 주식 보유현황 데이터 조회
+ */
+router.get('/stock-holdings', async (req, res) => {
+  try {
+    const {
+      corpCode,
+      corpName,
+      startDate,
+      endDate,
+      reporterName,
+      changeReason,
+      reportReason,
+      page = 1,
+      limit = 50
+    } = req.query
+
+    // 파라미터 검증
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: 'startDate와 endDate는 필수 파라미터입니다.',
+        example: '?startDate=2024-01-01&endDate=2024-01-31&corpCode=00126380'
+      })
+    }
+
+    // 날짜 형식 검증
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRegex.test(startDate as string) || !dateRegex.test(endDate as string)) {
+      return res.status(400).json({
+        error: '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)',
+        startDate,
+        endDate
+      })
+    }
+
+    // 주식 보유현황 데이터 조회
+    const holdings = await DartDisclosureRepository.getStockHoldings({
+      corpCode: corpCode as string,
+      corpName: corpName as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+      reporterName: reporterName as string,
+      changeReason: changeReason as string,
+      reportReason: reportReason as string,
+      page: parseInt(page as string),
+      limit: parseInt(limit as string)
+    })
+
+    // 전체 카운트 조회 (필터링된 결과의 실제 개수)
+    const totalCount = await DartDisclosureRepository.getStockHoldingsCount({
+      corpCode: corpCode as string,
+      corpName: corpName as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+      reporterName: reporterName as string,
+      changeReason: changeReason as string,
+      reportReason: reportReason as string
+    })
+
+    return res.json({
+      success: true,
+      data: {
+        holdings,
+        total: totalCount,
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+        totalPages: Math.ceil(totalCount / parseInt(limit as string)),
+        params: {
+          corpCode: corpCode || null,
+          corpName: corpName || null,
+          startDate,
+          endDate,
+          reporterName: reporterName || null,
+          changeReason: changeReason || null,
+          reportReason: reportReason || null,
+          page: parseInt(page as string),
+          limit: Math.min(parseInt(limit as string), 100)
+        }
+      }
+    })
+
+    logger.info(`[DART API] 주식 보유현황 조회: ${startDate} ~ ${endDate}, ${holdings.length}건`)
+
+  } catch (error) {
+    logger.error('[DART API] 주식 보유현황 조회 실패:', error)
+    return res.status(500).json({
+      error: '주식 보유현황 데이터 조회 중 오류가 발생했습니다.',
       message: (error as Error).message
     })
   }

@@ -57,40 +57,40 @@ class ApiClient {
   // Fear & Greed Index endpoints
   async getFearGreedLatest(): Promise<FearGreedIndex> {
     return this.handleRequest<ApiResponse<FearGreedIndex>>(
-      () => api.get('/api/fear-greed/latest')
+      () => api.get('/fear-greed/latest')
     ).then(res => res.data)
   }
 
   async getFearGreedHistory(days: number = 30): Promise<FearGreedHistory[]> {
     return this.handleRequest<ApiResponse<FearGreedHistory[]>>(
-      () => api.get(`/api/fear-greed/history?days=${days}`)
+      () => api.get(`/fear-greed/history?days=${days}`)
     ).then(res => res.data)
   }
 
   // Market data endpoints
   async getKospiLatest(): Promise<KospiData> {
     return this.handleRequest<ApiResponse<KospiData>>(
-      () => api.get('/api/market/kospi/latest')
+      () => api.get('/data/kospi/latest')
     ).then(res => res.data)
   }
 
   // System endpoints
   async getSystemStatus(): Promise<SystemStatus> {
     return this.handleRequest<ApiResponse<SystemStatus>>(
-      () => api.get('/api/system/status')
+      () => api.get('/system/status')
     ).then(res => res.data)
   }
 
   async getCollectionStatus(days: number = 7): Promise<CollectionStatus[]> {
     return this.handleRequest<ApiResponse<CollectionStatus[]>>(
-      () => api.get(`/api/system/collection-status?days=${days}`)
+      () => api.get(`/system/collection-status?days=${days}`)
     ).then(res => res.data)
   }
 
   // Admin endpoints
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     return this.handleRequest<LoginResponse>(
-      () => api.post('/api/admin/login', credentials)
+      () => api.post('/admin/login', credentials)
     )
   }
 
@@ -105,7 +105,7 @@ class ApiClient {
 
   async calculateFearGreed(date?: string): Promise<FearGreedCalculationResult> {
     return this.handleRequest<ApiResponse<FearGreedCalculationResult>>(
-      () => api.post('/api/admin/recalculate-range', { startDate: date, endDate: date })
+      () => api.post('/admin/recalculate-range', { startDate: date, endDate: date })
     ).then(res => res.data)
   }
 
@@ -117,7 +117,7 @@ class ApiClient {
     dryRun?: boolean
   }): Promise<DartBatchResult> {
     return this.handleRequest<ApiResponse<DartBatchResult>>(
-      () => api.post('/api/dart/collect', params)
+      () => api.post('/dart/collect', params)
     ).then(res => res.data)
   }
 

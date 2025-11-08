@@ -644,31 +644,62 @@ export class DartDisclosureRepository extends BaseRepository {
    */
   static async getStockHoldings(params: {
     corpCode?: string
+    corpName?: string
     startDate: string
     endDate: string
     reporterName?: string
+    changeReason?: string
+    reportReason?: string
     page: number
     limit: number
   }): Promise<any[]> {
     try {
-      const { corpCode, startDate, endDate, reporterName, page, limit } = params
+      const { corpCode, corpName, startDate, endDate, reporterName, changeReason, reportReason, page, limit } = params
       
-      const whereClause: any = {
+      // 날짜 범위 조건 (receiptDate 또는 reportDate)
+      const dateRangeCondition = {
         OR: [
           { receiptDate: { gte: new Date(startDate), lte: new Date(endDate) } },
           { reportDate: { gte: new Date(startDate), lte: new Date(endDate) } }
         ]
       }
 
+      // AND 조건 배열 구성
+      const andConditions: any[] = [dateRangeCondition]
+
       // 기업 코드 필터링
       if (corpCode) {
-        whereClause.corpCode = corpCode
+        andConditions.push({ corpCode })
+      }
+
+      // 기업명 필터링
+      if (corpName) {
+        andConditions.push({ corpName: { contains: corpName } })
       }
 
       // 보고자명 필터링
       if (reporterName) {
-        whereClause.reporterName = { contains: reporterName }
+        andConditions.push({ reporterName: { contains: reporterName } })
       }
+
+      // 변동사유 필터링 (changeReason 또는 reportReason)
+      if (changeReason || reportReason) {
+        const reasonFilter: any[] = []
+        if (changeReason) {
+          reasonFilter.push({ changeReason: { contains: changeReason } })
+        }
+        if (reportReason) {
+          reasonFilter.push({ reportReason: { contains: reportReason } })
+        }
+        if (reasonFilter.length > 0) {
+          andConditions.push({ OR: reasonFilter })
+        }
+      }
+
+      // 최종 whereClause 구성
+      const whereClause: any = andConditions.length === 1 
+        ? dateRangeCondition 
+        : { AND: andConditions }
 
       const holdings = await this.prisma.dartStockHolding.findMany({
         where: whereClause,
@@ -684,6 +715,77 @@ export class DartDisclosureRepository extends BaseRepository {
     } catch (error) {
       this.logError('주식 보유현황 조회', JSON.stringify(params), error)
       return []
+    }
+  }
+
+  /**
+   * 주식 보유현황 데이터 총 개수 조회 (페이징용)
+   */
+  static async getStockHoldingsCount(params: {
+    corpCode?: string
+    corpName?: string
+    startDate: string
+    endDate: string
+    reporterName?: string
+    changeReason?: string
+    reportReason?: string
+  }): Promise<number> {
+    try {
+      const { corpCode, corpName, startDate, endDate, reporterName, changeReason, reportReason } = params
+      
+      // 날짜 범위 조건 (receiptDate 또는 reportDate)
+      const dateRangeCondition = {
+        OR: [
+          { receiptDate: { gte: new Date(startDate), lte: new Date(endDate) } },
+          { reportDate: { gte: new Date(startDate), lte: new Date(endDate) } }
+        ]
+      }
+
+      // AND 조건 배열 구성
+      const andConditions: any[] = [dateRangeCondition]
+
+      // 기업 코드 필터링
+      if (corpCode) {
+        andConditions.push({ corpCode })
+      }
+
+      // 기업명 필터링
+      if (corpName) {
+        andConditions.push({ corpName: { contains: corpName } })
+      }
+
+      // 보고자명 필터링
+      if (reporterName) {
+        andConditions.push({ reporterName: { contains: reporterName } })
+      }
+
+      // 변동사유 필터링 (changeReason 또는 reportReason)
+      if (changeReason || reportReason) {
+        const reasonFilter: any[] = []
+        if (changeReason) {
+          reasonFilter.push({ changeReason: { contains: changeReason } })
+        }
+        if (reportReason) {
+          reasonFilter.push({ reportReason: { contains: reportReason } })
+        }
+        if (reasonFilter.length > 0) {
+          andConditions.push({ OR: reasonFilter })
+        }
+      }
+
+      // 최종 whereClause 구성
+      const whereClause: any = andConditions.length === 1 
+        ? dateRangeCondition 
+        : { AND: andConditions }
+
+      const count = await this.prisma.dartStockHolding.count({
+        where: whereClause
+      })
+
+      return count
+    } catch (error) {
+      this.logError('주식 보유현황 카운트 조회', JSON.stringify(params), error)
+      return 0
     }
   }
 

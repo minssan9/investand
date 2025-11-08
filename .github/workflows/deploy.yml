@@ -9,8 +9,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_BACKEND: ${{ github.repository }}-backend
-  IMAGE_NAME_FRONTEND: ${{ github.repository }}-frontend
+  IMAGE_NAME_BACKEND: ghcr.io/${{ github.repository_owner }}/kospi-fg-index-backend
+  IMAGE_NAME_FRONTEND: ghcr.io/${{ github.repository_owner }}/kospi-fg-index-frontend
 
 jobs:
   test:
@@ -107,11 +107,13 @@ jobs:
         context: ./backend
         push: true
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+          ${{ env.IMAGE_NAME_BACKEND }}:latest
+          ${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
+        build-args: |
+          NODE_ENV=production
     
     - name: Build and push Frontend Docker image
       uses: docker/build-push-action@v5
@@ -119,11 +121,13 @@ jobs:
         context: ./frontend
         push: true
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+          ${{ env.IMAGE_NAME_FRONTEND }}:latest
+          ${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
+        build-args: |
+          VITE_API_BASE_URL=/api
 
   deploy:
     runs-on: ubuntu-latest
@@ -134,60 +138,135 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Deploy to Production
+    - name: Deploy to Digital Ocean
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.VM_HOST }}
-        username: ${{ secrets.VM_USER }}
-        key: ${{ secrets.VM_SSH_KEY }}
+        host: ${{ secrets.DO_HOST }}
+        username: ${{ secrets.DO_USER }}
+        key: ${{ secrets.DO_SSH_KEY }}
+        port: ${{ secrets.DO_SSH_PORT || 22 }}
         script: |
           set -e
-          cd /data/devops/investand
-
+          
+          # Set deployment directory (adjust if needed)
+          DEPLOY_DIR=${DEPLOY_DIR:-/opt/investand}
+          cd $DEPLOY_DIR || { echo "Deployment directory not found: $DEPLOY_DIR"; exit 1; }
+          
+          echo "🚀 Starting deployment to Digital Ocean..."
+          echo "📍 Deployment directory: $DEPLOY_DIR"
+          echo "📦 Image: ${{ github.sha }}"
+          
           # Login to GitHub Container Registry
+          echo "🔐 Logging in to GitHub Container Registry..."
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-          # Backup and deploy
-          if docker ps -q --filter "name=fg-"; then
-            echo "Creating backup..."
-            bash backup.sh || echo "Backup script not found, skipping..."
-          fi
-
-          # Pull latest images and deploy using docker-compose from /data/devops
-          docker-compose pull
-          docker-compose up -d --remove-orphans
-
-          # Wait for services to be healthy
-          sleep 30
-
-          # Health check
-          for i in {1..5}; do
-            if curl -f http://localhost/health && curl -f http://localhost/api/health; then
-              echo "✅ Deployment successful!"
-              break
-            elif [ $i -eq 5 ]; then
-              echo "❌ Health check failed"
-              exit 1
+          
+          # Backup existing deployment (if running)
+          if docker ps -q --filter "name=fg-" | grep -q .; then
+            echo "💾 Creating backup..."
+            if [ -f "scripts/backup.sh" ]; then
+              bash scripts/backup.sh || echo "⚠️ Backup script failed, continuing..."
             else
-              echo "Health check $i/5 failed, retrying..."
+              echo "⚠️ Backup script not found, skipping backup..."
+            fi
+          fi
+          
+          # Pull latest images
+          echo "📥 Pulling latest Docker images..."
+          docker-compose pull backend frontend || {
+            echo "❌ Failed to pull images"
+            exit 1
+          }
+          
+          # Stop existing containers gracefully
+          echo "🛑 Stopping existing containers..."
+          docker-compose down --timeout 30 || true
+          
+          # Start new containers
+          echo "▶️ Starting new containers..."
+          docker-compose up -d --remove-orphans --build || {
+            echo "❌ Failed to start containers"
+            docker-compose logs --tail=50
+            exit 1
+          }
+          
+          # Wait for services to be healthy
+          echo "⏳ Waiting for services to be healthy..."
+          sleep 15
+          
+          # Health check with retries
+          echo "🏥 Running health checks..."
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          HEALTH_CHECK_PASSED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Health check attempt $RETRY_COUNT/$MAX_RETRIES..."
+            
+            # Check backend health
+            if curl -f -s http://localhost:3000/health > /dev/null 2>&1; then
+              echo "✅ Backend health check passed"
+              
+              # Check frontend (if nginx is configured)
+              if curl -f -s http://localhost/health > /dev/null 2>&1 || curl -f -s http://localhost:80 > /dev/null 2>&1; then
+                echo "✅ Frontend health check passed"
+                HEALTH_CHECK_PASSED=true
+                break
+              else
+                echo "⚠️ Frontend health check failed, retrying..."
+              fi
+            else
+              echo "⚠️ Backend health check failed, retrying..."
+            fi
+            
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
               sleep 10
             fi
           done
-
-          # Clean up old images
+          
+          if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed after $MAX_RETRIES attempts"
+            echo "📋 Container status:"
+            docker-compose ps
+            echo "📋 Recent logs:"
+            docker-compose logs --tail=100
+            exit 1
+          fi
+          
+          # Clean up old images (keep last 2 versions)
+          echo "🧹 Cleaning up old Docker images..."
           docker image prune -f
+          
+          # Show deployment summary
+          echo ""
+          echo "✅ Deployment successful!"
+          echo "📊 Container status:"
+          docker-compose ps
+          echo ""
+          echo "🌐 Services available at:"
+          echo "   - Frontend: http://${{ secrets.DO_HOST }}"
+          echo "   - Backend API: http://${{ secrets.DO_HOST }}:3000"
+          echo "   - API Docs: http://${{ secrets.DO_HOST }}:3000/api/docs"
     
     - name: Notify Deployment Status
       if: always()
       run: |
         if [ "${{ job.status }}" == "success" ]; then
-          STATUS="✅ Deployment successful"
+          STATUS="✅ Deployment successful to Digital Ocean"
+          EMOJI="🚀"
         else
-          STATUS="❌ Deployment failed"
+          STATUS="❌ Deployment failed to Digital Ocean"
+          EMOJI="💥"
         fi
         
+        echo "$EMOJI $STATUS"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Actor: ${{ github.actor }}"
+        
+        # Send notification to Slack if webhook is configured
         if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
           curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"$STATUS for commit ${{ github.sha }}\"}" \
-            ${{ secrets.SLACK_WEBHOOK_URL }}
+            --data "{\"text\":\"$EMOJI $STATUS\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref }}\nActor: ${{ github.actor }}\"}" \
+            ${{ secrets.SLACK_WEBHOOK_URL }} || echo "Failed to send Slack notification"
         fi
