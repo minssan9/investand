@@ -182,7 +182,10 @@ function getComponentClass(value: number): string {
   return 'text-green-7'
 }
 
-function formatNumber(value: number): string {
+function formatNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined || isNaN(value)) {
+    return '0.00'
+  }
   return value.toLocaleString('ko-KR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
